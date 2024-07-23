@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ElementTree
 import zipfile
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from requests.auth import HTTPBasicAuth
 
@@ -46,6 +46,16 @@ def _if_exists(path: Path) -> Path | None:
     return path if path.exists() else None
 
 
+def _fromisoformat(text: str) -> datetime:
+    """Convert RFC 3339 string into datetime; compatible with Python 3.10."""
+    if not text.endswith("Z"):
+        raise ValueError("expecting RFC 3339 formatted string")
+    d = datetime.fromisoformat(text.rstrip("Z"))
+    return datetime(
+        d.year, d.month, d.day, d.hour, d.minute, d.second, d.microsecond, timezone.utc
+    )
+
+
 def get_standard_ebooks(opds: str, email: str) -> dict[str, StandardEbook]:
     """Return Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
@@ -61,7 +71,7 @@ def get_standard_ebooks(opds: str, email: str) -> dict[str, StandardEbook]:
             href=entry.find(".//atom:link[@title='Recommended compatible epub']", ns).attrib[
                 "href"
             ],
-            updated=datetime.fromisoformat(entry.find("atom:updated", ns).text),
+            updated=_fromisoformat(entry.find("atom:updated", ns).text),
         )
         ebooks[ebook.id] = ebook
     return ebooks
@@ -91,7 +101,7 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
                     id=id.text,
                     title=metadata.find(".//dc:title", ns).text,
                     path=path,
-                    modified=datetime.fromisoformat(modified.text),
+                    modified=_fromisoformat(modified.text),
                 )
                 ebooks[ebook.id] = ebook
     return ebooks
