@@ -1,0 +1,46 @@
+[build-system]
+requires = ["poetry>=1.8"]
+build-backend = "poetry.masonry.api"
+
+[tool.black]
+line-length = 96
+target-version = ['py312']
+
+[tool.poetry]
+name = "sebsync"
+version = "1.0alpha1"
+description = "Synchronize Standard Ebooks catalog with local ebooks."
+readme = "README.md"
+authors = ["sebsync authors"]
+homepage = "https://github.com/pbryan/sebsync/"
+documentation = "https://github.com/pbryan/sebsync/tree/main/docs"
+license = "MIT"
+keywords = ["ebook", "downloader", "standard", "book"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Other/Nonlisted Topic",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+click = "^8.1"
+requests = "^2.32"
+
+[tool.poetry.dev-dependencies]
+black = "^24.4"
+isort = "^5.13"
+pre-commit = "^3.7"
+pytest = "^8.3"
+pytest-cov = "^5.0"
+
+[tool.isort]
+profile = "black"
+lexicographical = true
+lines_after_imports = 2
+lines_between_types = 1
+line_length = 96
+no_sections = true
+
+[tool.poetry.scripts]
+sebsync = "sebsync:main"
