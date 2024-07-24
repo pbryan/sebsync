@@ -23,12 +23,12 @@ class Status:
 
 
 _epilog = f"""
-    The following statuses are reported for ebooks:
+    The following statuses are reported:
 
     \b
-     {Status.NEW}: new (ebook found in Standard Ebooks catalog but not found locally)
-     {Status.UPDATE}: update (new version of ebook found in Standard Ebooks catalog)
-     {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
+    {Status.NEW}: new (downloads the new ebook to downloads directory)
+    {Status.UPDATE}: update (overwrites the existing local ebook with new version)
+    {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
 
     An extraneous ebook can occur when Standard Ebooks changes the identifier of a previously
     published ebook. It's a rare occurance, and it's generally safe to delete such files.
@@ -56,16 +56,24 @@ class LocalEbook:
     modified: datetime
 
 
-def _echo_status(path: Path, status: str) -> None:
+# map type selection to link title in OPDS catalog
+type_selector = {
+    "compatible": "Recommended compatible epub",
+    "kobo": "Kobo Kepub epub",
+    "advanced": "Advanced epub",
+}
+
+
+def echo_status(path: Path, status: str) -> None:
     if not _quiet:
         click.echo(f"{status} {path}")
 
 
-def _if_exists(path: Path) -> Path | None:
+def if_exists(path: Path) -> Path | None:
     return path if path.exists() else None
 
 
-def _fromisoformat(text: str) -> datetime:
+def fromisoformat(text: str) -> datetime:
     """Convert RFC 3339 string into datetime; compatible with Python 3.10."""
     if not text.endswith("Z"):
         raise ValueError("expecting RFC 3339 formatted string")
@@ -73,13 +81,6 @@ def _fromisoformat(text: str) -> datetime:
     return datetime(
         d.year, d.month, d.day, d.hour, d.minute, d.second, d.microsecond, timezone.utc
     )
-
-
-type_selector = {
-    "compatible": "Recommended compatible epub",
-    "kobo": "Kobo Kepub epub",
-    "advanced": "Advanced epub",
-}
 
 
 def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, StandardEbook]:
@@ -95,7 +96,7 @@ def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, Standar
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
             href=entry.find(f".//atom:link[@title='{type_selector[type]}']", ns).attrib["href"],
-            updated=_fromisoformat(entry.find("atom:updated", ns).text),
+            updated=fromisoformat(entry.find("atom:updated", ns).text),
         )
         ebooks[ebook.id] = ebook
     return ebooks
@@ -125,7 +126,7 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
                     id=id.text,
                     title=metadata.find(".//dc:title", ns).text,
                     path=path,
-                    modified=_fromisoformat(modified.text),
+                    modified=fromisoformat(modified.text),
                 )
                 ebooks[ebook.id] = ebook
     return ebooks
@@ -157,47 +158,49 @@ def ebook_filename(ebook: StandardEbook) -> str:
 @click.command(help=__doc__, epilog=_epilog)
 @click.option(
     "--books",
-    help="directory where local books are stored",
+    help="Directory where local books are stored.",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
-    default=_if_exists(Path.home() / "Books"),
+    default=if_exists(Path.home() / "Books"),
 )
 @click.option(
     "--downloads",
-    help="directory where new ebooks are downloaded",
+    help="Directory where new ebooks are downloaded.",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
-    default=_if_exists(Path.home() / "Downloads"),
+    default=if_exists(Path.home() / "Downloads"),
 )
 @click.option(
     "--dry-run",
-    help="perform a trial run with no changes made",
+    help="Perform a trial run with no changes made.",
     is_flag=True,
 )
 @click.option(
     "--email",
-    help="email address to authenticate with Standard Ebooks",
+    help="Email address to authenticate with Standard Ebooks.",
     required=True,
 )
+@click.help_option()
 @click.option(
     "--opds",
-    help="URL of Standard Ebooks OPDS catalog",
+    help="URL of Standard Ebooks OPDS catalog.",
     default="https://standardebooks.org/feeds/opds/all",
 )
 @click.option(
     "--quiet",
-    help="suppress non-error messages",
+    help="Suppress non-error messages.",
     is_flag=True,
 )
 @click.option(
     "--type",
-    type=click.Choice(["compatible", "kobo", "advanced"]),
-    help="EPUB type to download",
+    type=click.Choice(type_selector.keys()),
+    help="EPUB type to download.",
     default="compatible",
 )
 @click.option(
     "--verbose",
-    help="increase verbosity",
+    help="Increase verbosity.",
     is_flag=True,
 )
+@click.version_option(package_name="sebsync")
 def sebsync(
     books: str,
     downloads: str,
@@ -213,7 +216,7 @@ def sebsync(
     global _quiet
 
     _dry_run = dry_run
-    _verbose = verbose
+    _verbose = verbose and not quiet  # quiet wins
     _quiet = quiet
 
     remote_ebooks = get_remote_ebooks(opds, email, type)
@@ -229,16 +232,16 @@ def sebsync(
     for remote_ebook in remote_ebooks.values():
         if local_ebook := local_ebooks.get(remote_ebook.id):
             if remote_ebook.updated != local_ebook.modified:
-                _echo_status(local_ebook.path, Status.UPDATE)
+                echo_status(local_ebook.path, Status.UPDATE)
                 download_ebook(remote_ebook.href, local_ebook.path)
         else:
             path = downloads / ebook_filename(remote_ebook)
-            _echo_status(path, Status.NEW)
+            echo_status(path, Status.NEW)
             download_ebook(remote_ebook.href, path)
 
     for local_ebook in local_ebooks.values():
         if local_ebook.id not in remote_ebooks:
-            _echo_status(local_ebook.path, Status.EXTRA)
+            echo_status(local_ebook.path, Status.EXTRA)
 
 
 def main():

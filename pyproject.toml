@@ -13,7 +13,6 @@ description = "Synchronize Standard Ebooks catalog with local ebooks."
 readme = "README.md"
 authors = ["sebsync authors"]
 homepage = "https://github.com/pbryan/sebsync/"
-documentation = "https://github.com/pbryan/sebsync/tree/main/docs"
 license = "MIT"
 keywords = ["ebook", "downloader", "standard", "book"]
 classifiers = [
