@@ -1,6 +1,7 @@
-"""Synchronize Standard Ebooks catalog with local ebooks."""
+"""Synchronize Standard Ebooks catalog with a local EPUB collection."""
 
 import click
+from enum import Enum
 import requests
 import xml.etree.ElementTree as ElementTree
 import zipfile
@@ -16,8 +17,22 @@ _quiet: bool = False
 _verbose: bool = False
 
 
-_epilog = """
-    All options can be provided through environment variables in all-caps with SEBSYNC_ prefix.
+class Status:
+    NEW = click.style("N", fg="green")
+    UPDATE = click.style("U", fg="blue")
+    EXTRA = click.style("X", fg="yellow")
+
+
+_epilog = f"""
+    The following statuses are reported for ebooks:
+
+    \b
+     {Status.NEW}: new (ebook found in Standard Ebooks catalog but not found locally)
+     {Status.UPDATE}: update (new version of ebook found in Standard Ebooks catalog)
+     {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
+
+    An extraneous ebook can occur when Standard Ebooks changes the identifier of a previously
+    published ebook. It's a rare occurance, and it's generally safe to delete such files.
 """
 
 
@@ -42,6 +57,11 @@ class LocalEbook:
     modified: datetime
 
 
+def _echo_status(path: Path, status: str) -> None:
+    if not _quiet:
+        click.echo(f"{status} {path}")
+
+
 def _if_exists(path: Path) -> Path | None:
     return path if path.exists() else None
 
@@ -56,11 +76,11 @@ def _fromisoformat(text: str) -> datetime:
     )
 
 
-def get_standard_ebooks(opds: str, email: str) -> dict[str, StandardEbook]:
+def get_remote_ebooks(opds_url: str, email: str) -> dict[str, StandardEbook]:
     """Return Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
     ebooks = {}
-    response = requests.get(opds, stream=True, auth=HTTPBasicAuth(email, ""))
+    response = requests.get(opds_url, stream=True, auth=HTTPBasicAuth(email, ""))
     response.raw.decode_content = True
     root = ElementTree.parse(response.raw).getroot()
     for entry in root.iterfind(".//atom:entry", ns):
@@ -109,8 +129,6 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
 
 def download_ebook(url: str, path: Path) -> None:
     """Download the ebook at the specified URL into the specified path."""
-    if not _quiet:
-        click.echo(f"Download: {path}")
     if not _dry_run:
         response = requests.get(url, stream=True)
         with path.open("wb") as file:
@@ -136,12 +154,12 @@ def ebook_filename(ebook: StandardEbook) -> str:
 @click.option(
     "--books",
     help="directory where local books are stored",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
     default=_if_exists(Path.home() / "Books"),
 )
 @click.option(
     "--downloads",
-    help="directory where ebooks are downloaded",
+    help="directory where new ebooks are downloaded",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
     default=_if_exists(Path.home() / "Downloads"),
 )
@@ -152,7 +170,7 @@ def ebook_filename(ebook: StandardEbook) -> str:
 )
 @click.option(
     "--email",
-    help="email to authenticate with Standard Ebooks",
+    help="email address to authenticate with Standard Ebooks",
     required=True,
 )
 @click.option(
@@ -181,28 +199,29 @@ def sebsync(
     _verbose = verbose
     _quiet = quiet
 
-    remote_ebooks = get_standard_ebooks(opds, email)
+    remote_ebooks = get_remote_ebooks(opds, email)
     if not remote_ebooks:
-        raise click.ClickException("Email address rejected by Standard Ebooks.")
+        raise click.ClickException("OPDS download failed. Is email address correct?")
     if _verbose:
-        click.echo(f"Found {len(remote_ebooks)} remote Standard Ebooks titles.")
+        click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
     local_ebooks = get_local_ebooks(downloads) | get_local_ebooks(books)
     if _verbose:
-        click.echo(f"Found {len(local_ebooks)} local Standard Ebooks titles.")
+        click.echo(f"Found {len(local_ebooks)} local ebooks.")
 
     for remote_ebook in remote_ebooks.values():
         if local_ebook := local_ebooks.get(remote_ebook.id):
             if remote_ebook.updated != local_ebook.modified:
+                _echo_status(local_ebook.path, Status.UPDATE)
                 download_ebook(remote_ebook.href, local_ebook.path)
         else:
             path = downloads / ebook_filename(remote_ebook)
+            _echo_status(path, Status.NEW)
             download_ebook(remote_ebook.href, path)
 
-    if not _quiet:
-        for local_ebook in local_ebooks.values():
-            if local_ebook.id not in remote_ebooks:
-                click.secho(f"Extra: {local_ebook.path}", fg="yellow")
+    for local_ebook in local_ebooks.values():
+        if local_ebook.id not in remote_ebooks:
+            _echo_status(local_ebook.path, Status.EXTRA)
 
 
 def main():
