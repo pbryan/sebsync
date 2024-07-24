@@ -53,3 +53,10 @@ Q2. *What is pipx?*
 A2. [pipx](https://pipx.pypa.io/) is a utility that allows Python packages like sebsync to
 be installed in an isolated environment. This makes it really easy to install and run such
 scripts without interfering with other Python package installations.
+
+Q3. *Does this script support Kindle books?*
+
+A3. Not presently. A cursory analysis of the Standard Ebooks AZW3 structure suggests that there
+currently isn't a reliable method to reconcile Kindle ebooks with the OPDS feed catalog. If
+this feature is important to you, please let us know by voting for
+[this issue](https://github.com/pbryan/sebsync/issues/2) in GitHub.
