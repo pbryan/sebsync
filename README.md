@@ -14,8 +14,8 @@ directory. If an updated version of a book is detected in the catalog that is al
 local filesystem, then the updated version will be downloaded and stored in the existing local
 file.
 
-The script can also detect extraneous local ebooks (local ebooks not found in Standard Ebooks
-catalog). This can can occur when Standard Ebooks changes the identifier of a previously
+The script can also detect extraneous local ebooks (local ebooks not found in the Standard
+Ebooks catalog). This can can occur when Standard Ebooks changes the identifier of a previously
 published ebook. It's a rare occurance, and it's generally safe to delete such files.
 
 ## Requirements
