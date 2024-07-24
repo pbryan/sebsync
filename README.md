@@ -16,7 +16,7 @@ file.
 
 The script can also detect extraneous local ebooks (local ebooks not found in the Standard
 Ebooks catalog). This can can occur when Standard Ebooks changes the identifier of a previously
-published ebook. It's a rare occurance, and it's generally safe to delete such files.
+published ebook. It's a rare occurrence, and it's generally safe to delete such files.
 
 ## Requirements
 

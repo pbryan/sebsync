@@ -31,7 +31,7 @@ _epilog = f"""
     {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
 
     An extraneous ebook can occur when Standard Ebooks changes the identifier of a previously
-    published ebook. It's a rare occurance, and it's generally safe to delete such files.
+    published ebook. It's a rare occurrence, and it's generally safe to delete such files.
 """
 
 
