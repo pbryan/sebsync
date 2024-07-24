@@ -5,8 +5,9 @@ collection.
 
 ## How it works
 
-The script reads the Standard Ebooks OPDS catalog and reconciles their ebooks against the
-EPUBs in your local filesystem, downloading new ones or updating existing ones as necessary.
+The script reads the Standard Ebooks [OPDS feed](https://standardebooks.org/feeds) and
+reconciles the ebooks in their catalog against the EPUBs in your local filesystem,
+downloading new ones or updating existing ones as necessary.
 
 If a new ebook is detected in the catalog, then it will be downloaded into your downloads
 directory. If an updated version of a book is detected in the catalog that is already in your
@@ -19,11 +20,13 @@ published ebook. It's a rare occurance, and it's generally safe to delete such f
 
 ## Requirements
 
-This script uses Standard Ebooks' [OPDS feed](https://standardebooks.org/feeds) to get metadata
-on all books their catalog. In order to do so, you need to be a member of the Standard Ebooks
+This script uses Standard Ebooks' OPDS feed to access metadata on all books their catalog. In
+order to do so, you need to be a member of the Standard Ebooks
 [Patrons Circle](https://standardebooks.org/donate#patrons-circle) (or have previously produced
-an ebook for Standard Ebooks). If you're not already a Patron, please consider becoming one;
-it's a tremendously valuable project, deserving of your support.
+an ebook for Standard Ebooks).
+
+If you're not already a Standard Ebooks Patron, please consider becoming one. It's a
+tremendously valuable project, deserving of your support.
 
 ## Installation
 
