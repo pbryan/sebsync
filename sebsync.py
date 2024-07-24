@@ -190,7 +190,7 @@ def ebook_filename(ebook: StandardEbook) -> str:
 @click.option(
     "--type",
     type=click.Choice(["compatible", "kobo", "advanced"]),
-    help="file type to download",
+    help="EPUB type to download",
     default="compatible",
 )
 @click.option(
