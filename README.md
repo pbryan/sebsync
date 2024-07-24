@@ -1,7 +1,7 @@
 # sebsync
 
-sebsync is a simple script to synchronize the Standard Ebooks catalog with your local EPUB
-collection.
+sebsync is a simple script to synchronize the [Standard Ebooks](https://standardebooks.org/)
+catalog with your local EPUB collection.
 
 ## How it works
 
