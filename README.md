@@ -25,7 +25,7 @@ order to do so, you need to be a member of the Standard Ebooks
 [Patrons Circle](https://standardebooks.org/donate#patrons-circle) (or have previously produced
 an ebook for Standard Ebooks).
 
-If you're not already a Standard Ebooks Patron, please consider becoming one. It's a
+If you're not already a Standard Ebooks patron, please consider becoming one. It's a
 tremendously valuable project, deserving of your support.
 
 ## Installation
@@ -42,14 +42,14 @@ sebsync --email addr@example.com --books /home/user/MyBooks --downloads /home/us
 
 ## Questions and answers
 
-**Q1.** Why use a separate downloads directory for new ebooks?
+Q1. *Why use a separate downloads directory for new ebooks?*
 
-**A1.** This is a feature for those who want to easily recognize new ebooks, and to manually
+A1. This is a feature for those who want to easily recognize new ebooks, and to manually
 rename and/or categorize them within their library. If this feature is not useful for you,
 simply set `--downloads` to be the same directory as `--books`.
 
-**Q2.** What is pipx?
+Q2. *What is pipx?*
 
-**A2.** [pipx](https://pipx.pypa.io/) is a utility that allows Python packages like sebsync to
+A2. [pipx](https://pipx.pypa.io/) is a utility that allows Python packages like sebsync to
 be installed in an isolated environment. This makes it really easy to install and run such
 scripts without interfering with other Python package installations.
