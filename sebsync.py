@@ -1,7 +1,6 @@
 """Synchronize Standard Ebooks catalog with a local EPUB collection."""
 
 import click
-from enum import Enum
 import requests
 import xml.etree.ElementTree as ElementTree
 import zipfile
@@ -76,7 +75,14 @@ def _fromisoformat(text: str) -> datetime:
     )
 
 
-def get_remote_ebooks(opds_url: str, email: str) -> dict[str, StandardEbook]:
+type_selector = {
+    "compatible": "Recommended compatible epub",
+    "kobo": "Kobo Kepub epub",
+    "advanced": "Advanced epub",
+}
+
+
+def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, StandardEbook]:
     """Return Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
     ebooks = {}
@@ -88,9 +94,7 @@ def get_remote_ebooks(opds_url: str, email: str) -> dict[str, StandardEbook]:
             id=entry.find("dc:identifier", ns).text,
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
-            href=entry.find(".//atom:link[@title='Recommended compatible epub']", ns).attrib[
-                "href"
-            ],
+            href=entry.find(f".//atom:link[@title='{type_selector[type]}']", ns).attrib["href"],
             updated=_fromisoformat(entry.find("atom:updated", ns).text),
         )
         ebooks[ebook.id] = ebook
@@ -184,12 +188,25 @@ def ebook_filename(ebook: StandardEbook) -> str:
     is_flag=True,
 )
 @click.option(
+    "--type",
+    type=click.Choice(["compatible", "kobo", "advanced"]),
+    help="file type to download",
+    default="compatible",
+)
+@click.option(
     "--verbose",
     help="increase verbosity",
     is_flag=True,
 )
 def sebsync(
-    books: str, downloads: str, dry_run: bool, email: str, opds: str, quiet: bool, verbose: bool
+    books: str,
+    downloads: str,
+    dry_run: bool,
+    email: str,
+    opds: str,
+    quiet: bool,
+    type: str,
+    verbose: bool,
 ):
     global _dry_run
     global _verbose
@@ -199,7 +216,7 @@ def sebsync(
     _verbose = verbose
     _quiet = quiet
 
-    remote_ebooks = get_remote_ebooks(opds, email)
+    remote_ebooks = get_remote_ebooks(opds, email, type)
     if not remote_ebooks:
         raise click.ClickException("OPDS download failed. Is email address correct?")
     if _verbose:
