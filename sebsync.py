@@ -1,4 +1,4 @@
-"""Synchronize Standard Ebooks catalog with a local EPUB collection."""
+"""Synchronize Standard Ebooks catalog with local EPUB collection."""
 
 import click
 import requests

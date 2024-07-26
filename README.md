@@ -14,7 +14,7 @@ directory. If an updated version of a book is detected in the catalog that is al
 local filesystem, then the updated version will be downloaded and stored in the existing local
 file.
 
-The script can also detect extraneous local ebooks (local ebooks not found in the Standard
+The script also detects extraneous local ebooks (local ebooks not found in the Standard
 Ebooks catalog). This can can occur when Standard Ebooks changes the identifier of a previously
 published ebook. It's a rare occurrence, and it's generally safe to delete such files.
 
@@ -23,10 +23,8 @@ published ebook. It's a rare occurrence, and it's generally safe to delete such 
 This script uses Standard Ebooks' OPDS feed to access metadata on all books their catalog. In
 order to do so, you need to be a member of the Standard Ebooks
 [Patrons Circle](https://standardebooks.org/donate#patrons-circle) (or have previously produced
-an ebook for Standard Ebooks).
-
-If you're not already a Standard Ebooks patron, please consider becoming one. It's a
-tremendously valuable project, deserving of your support.
+an ebook for Standard Ebooks). If you're not already a Standard Ebooks patron, please consider
+becoming one. It's a tremendously valuable project, deserving of your support.
 
 ## Installation
 
