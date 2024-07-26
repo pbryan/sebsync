@@ -8,17 +8,18 @@ target-version = ['py312']
 
 [tool.poetry]
 name = "sebsync"
-version = "1.0a6"
+version = "1.0b1"
 description = "Synchronize Standard Ebooks catalog with local EPUB collection."
 readme = "README.md"
 authors = ["sebsync authors"]
 homepage = "https://github.com/pbryan/sebsync/"
 license = "MIT"
-keywords = ["ebook", "downloader", "standard", "book"]
+keywords = ["standard", "ebook", "book", "synchronization", "sync", "download"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "Topic :: Other/Nonlisted Topic",
+    "Topic :: System :: Archiving :: Mirroring",
 ]
 
 [tool.poetry.dependencies]
