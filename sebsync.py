@@ -5,6 +5,7 @@ import requests
 import xml.etree.ElementTree as ElementTree
 import zipfile
 
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,9 +30,6 @@ _epilog = f"""
     {Status.NEW}: new (downloads the new ebook to downloads directory)
     {Status.UPDATE}: update (overwrites the existing local ebook with new version)
     {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
-
-    An extraneous ebook can occur when Standard Ebooks changes the identifier of a previously
-    published ebook. It's a rare occurrence, and it's generally safe to delete such files.
 """
 
 
@@ -106,29 +104,30 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
     """Return metadata of Standard EPUBs in the specified directory and subdirectories."""
     ebooks = {}
     for path in dir.glob("**/*.epub"):
-        with zipfile.ZipFile(path) as zip:
-            with zip.open("META-INF/container.xml") as file:
-                root = ElementTree.parse(file)
-                ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
-                rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
-            with zip.open(rootfile) as file:
-                root = ElementTree.parse(file)
-                ns = {
-                    "opf": "http://www.idpf.org/2007/opf",
-                    "dc": "http://purl.org/dc/elements/1.1/",
-                }
-                metadata = root.find("opf:metadata", ns)
-                id = metadata.find("dc:identifier", ns)
-                if id is None or "standardebooks.org" not in id.text:
-                    continue
-                modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
-                ebook = LocalEbook(
-                    id=id.text,
-                    title=metadata.find(".//dc:title", ns).text,
-                    path=path,
-                    modified=fromisoformat(modified.text),
-                )
-                ebooks[ebook.id] = ebook
+        with suppress():  # ignore invalid ebook
+            with zipfile.ZipFile(path) as zip:
+                with zip.open("META-INF/container.xml") as file:
+                    root = ElementTree.parse(file)
+                    ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
+                    rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
+                with zip.open(rootfile) as file:
+                    root = ElementTree.parse(file)
+                    ns = {
+                        "opf": "http://www.idpf.org/2007/opf",
+                        "dc": "http://purl.org/dc/elements/1.1/",
+                    }
+                    metadata = root.find("opf:metadata", ns)
+                    id = metadata.find("dc:identifier", ns)
+                    if id is None or "standardebooks.org" not in id.text:
+                        continue
+                    modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
+                    ebook = LocalEbook(
+                        id=id.text,
+                        title=metadata.find(".//dc:title", ns).text,
+                        path=path,
+                        modified=fromisoformat(modified.text),
+                    )
+                    ebooks[ebook.id] = ebook
     return ebooks
 
 
@@ -141,15 +140,29 @@ def download_ebook(url: str, path: Path) -> None:
                 file.write(chunk)
 
 
+def sortable_author(author: str) -> str:
+    """Return the sortable name of the given author."""
+    suffixes = {"Jr.", "Sr.", "Esq.", "PhD"}
+    split = author.split()
+    if len(split) < 2:
+        return author
+    last = split.pop().rstrip(",")
+    suffix = None
+    if last in suffixes:
+        suffix = last
+        last = split.pop()
+    result = last
+    if split:
+        result += f", {' '.join(split)}"
+    if suffix:
+        result += f", {suffix}"
+    return result
+
+
 def ebook_filename(ebook: StandardEbook) -> str:
-    """Return an appropriate EPUB file name for the given ebook author and title."""
+    """Return an appropriate EPUB file name for the given Standard Ebooks author and title."""
     replace = {"/": "-", "‘": "'", "’": "'", '"': "'", "“": "'", "”": "'"}
-    author = ebook.author
-    title = ebook.title
-    names = author.split()
-    if len(names) > 1:
-        author = f"{names[-1]}, {' '.join(names[:-1])}"
-    result = f"{author} - {title}.epub"
+    result = f"{sortable_author(ebook.author)} - {ebook.title}.epub"
     for k, v in replace.items():
         result = result.replace(k, v)
     return result
@@ -167,6 +180,11 @@ def ebook_filename(ebook: StandardEbook) -> str:
     help="Directory where new ebooks are downloaded.",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
     default=if_exists(Path.home() / "Downloads"),
+)
+@click.option(
+    "--force-update",
+    help="Force update of all local ebooks.",
+    is_flag=True,
 )
 @click.option(
     "--dry-run",
@@ -191,7 +209,7 @@ def ebook_filename(ebook: StandardEbook) -> str:
 )
 @click.option(
     "--type",
-    type=click.Choice(type_selector.keys()),
+    type=click.Choice(list(type_selector.keys())),
     help="EPUB type to download.",
     default="compatible",
 )
@@ -202,10 +220,11 @@ def ebook_filename(ebook: StandardEbook) -> str:
 )
 @click.version_option(package_name="sebsync")
 def sebsync(
-    books: str,
-    downloads: str,
+    books: Path,
+    downloads: Path,
     dry_run: bool,
     email: str,
+    force_update: bool,
     opds: str,
     quiet: bool,
     type: str,
@@ -231,7 +250,7 @@ def sebsync(
 
     for remote_ebook in remote_ebooks.values():
         if local_ebook := local_ebooks.get(remote_ebook.id):
-            if remote_ebook.updated != local_ebook.modified:
+            if remote_ebook.updated != local_ebook.modified or force_update:
                 echo_status(local_ebook.path, Status.UPDATE)
                 download_ebook(remote_ebook.href, local_ebook.path)
         else:
@@ -245,7 +264,7 @@ def sebsync(
 
 
 def main():
-    sebsync(auto_envvar_prefix="SEBSYNC", show_default=True)
+    sebsync(show_default=True)
 
 
 if __name__ == "__main__":
