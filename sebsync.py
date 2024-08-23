@@ -5,11 +5,11 @@ import requests
 import xml.etree.ElementTree as ElementTree
 import zipfile
 
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from requests.auth import HTTPBasicAuth
+from urllib.parse import urlparse
 
 
 _dry_run: bool = False
@@ -25,13 +25,17 @@ class Status:
 
 
 _epilog = f"""
-    The following statuses are reported:
+    \b
+    Download naming conventions:
+    • standard: Standard Ebooks' naming (e.g. "edwin-a-abbott_flatland.epub")
+    • sortable: sortable author/title (e.g. "Abbott, Edwin A. - Flatland.epub")
 
     \b
-    {Status.NEW}: new (downloads the new ebook to downloads directory)
-    {Status.UPDATE}: update (overwrites the existing local ebook with new version)
-    {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
-    {Status.UNKNOWN}: unknown (local ebook could not be processed)
+    Reported file statuses:
+    • {Status.NEW}: new (downloads the new ebook to downloads directory)
+    • {Status.UPDATE}: update (overwrites the existing local ebook with new version)
+    • {Status.EXTRA}: extraneous (local ebook not found in Standard Ebooks catalog)
+    • {Status.UNKNOWN}: unknown (local ebook could not be processed)
 
     See https://github.com/pbryan/sebsync/ for updates, bug reports and answers.
 """
@@ -101,6 +105,8 @@ def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, Standar
             updated=fromisoformat(entry.find("atom:updated", ns).text),
         )
         ebooks[ebook.id] = ebook
+    if not ebooks:
+        raise click.ClickException("OPDS catalog download failed. Is email address correct?")
     return ebooks
 
 
@@ -171,9 +177,13 @@ def sortable_author(author: str) -> str:
 
 
 def ebook_filename(ebook: StandardEbook) -> str:
-    """Return an appropriate EPUB file name for the given Standard Ebooks author and title."""
+    """Return an EPUB file name for Standard ebook."""
     replace = {"/": "-", "‘": "'", "’": "'", '"': "'", "“": "'", "”": "'"}
-    result = f"{sortable_author(ebook.author)} - {ebook.title}.epub"
+    match _naming:
+        case "standard":
+            result = Path(urlparse(ebook.href).path).name
+        case "sortable":
+            result = f"{sortable_author(ebook.author)} - {ebook.title}.epub"
     for k, v in replace.items():
         result = result.replace(k, v)
     return result
@@ -209,6 +219,12 @@ def ebook_filename(ebook: StandardEbook) -> str:
 )
 @click.help_option()
 @click.option(
+    "--naming",
+    type=click.Choice(["standard", "sortable"]),
+    help="Download file naming convention.",
+    default="standard",
+)
+@click.option(
     "--opds",
     help="URL of Standard Ebooks OPDS catalog.",
     default="https://standardebooks.org/feeds/opds/all",
@@ -236,6 +252,7 @@ def sebsync(
     dry_run: bool,
     email: str,
     force_update: bool,
+    naming: str,
     opds: str,
     quiet: bool,
     type: str,
@@ -244,14 +261,14 @@ def sebsync(
     global _dry_run
     global _verbose
     global _quiet
+    global _naming
 
     _dry_run = dry_run
-    _verbose = verbose and not quiet  # quiet wins
+    _naming = naming
     _quiet = quiet
+    _verbose = verbose and not quiet  # quiet wins
 
     remote_ebooks = get_remote_ebooks(opds, email, type)
-    if not remote_ebooks:
-        raise click.ClickException("OPDS download failed. Is email address correct?")
     if _verbose:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
