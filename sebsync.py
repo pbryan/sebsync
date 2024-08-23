@@ -21,6 +21,7 @@ class Status:
     NEW = click.style("N", fg="green")
     UPDATE = click.style("U", fg="blue")
     EXTRA = click.style("X", fg="yellow")
+    UNKNOWN = click.style("?", fg="yellow")
 
 
 _epilog = f"""
@@ -30,6 +31,9 @@ _epilog = f"""
     {Status.NEW}: new (downloads the new ebook to downloads directory)
     {Status.UPDATE}: update (overwrites the existing local ebook with new version)
     {Status.EXTRA}: extraneous (local ebook was not found in Standard Ebooks catalog)
+    {Status.UNKNOWN}: unknown (local ebook could not be processed)
+
+    See https://github.com/pbryan/sebsync/ for updates, bug reports and answers.
 """
 
 
@@ -104,7 +108,9 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
     """Return metadata of Standard EPUBs in the specified directory and subdirectories."""
     ebooks = {}
     for path in dir.glob("**/*.epub"):
-        with suppress():  # ignore invalid ebook
+        if not path.is_file():
+            continue
+        try:
             with zipfile.ZipFile(path) as zip:
                 with zip.open("META-INF/container.xml") as file:
                     root = ElementTree.parse(file)
@@ -128,16 +134,21 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
                         modified=fromisoformat(modified.text),
                     )
                     ebooks[ebook.id] = ebook
+        except:
+            echo_status(path, Status.UNKNOWN)
     return ebooks
 
 
 def download_ebook(url: str, path: Path) -> None:
     """Download the ebook at the specified URL into the specified path."""
-    if not _dry_run:
-        response = requests.get(url, stream=True)
-        with path.open("wb") as file:
-            for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
-                file.write(chunk)
+    if _dry_run:
+        return
+    download = path.with_suffix(".sebsync")
+    response = requests.get(url, stream=True)
+    with download.open("wb") as file:
+        for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
+            file.write(chunk)
+    download.replace(path)
 
 
 def sortable_author(author: str) -> str:
