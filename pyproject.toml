@@ -28,11 +28,11 @@ click = "^8.1"
 requests = "^2.32"
 
 [tool.poetry.dev-dependencies]
-black = "^24.8"
+black = "^24.10"
 isort = "^5.13"
-pre-commit = "^3.8"
+pre-commit = "^4.0"
 pytest = "^8.3"
-pytest-cov = "^5.0"
+pytest-cov = "^6.0"
 
 [tool.isort]
 profile = "black"
@@ -44,4 +44,3 @@ no_sections = true
 
 [tool.poetry.scripts]
 sebsync = "sebsync:main"
-    
