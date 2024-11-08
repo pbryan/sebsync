@@ -32,8 +32,8 @@ _epilog = f"""
 
     \b
     Reported file statuses:
-    • {Status.NEW}: new (downloads the new ebook to downloads directory)
-    • {Status.UPDATE}: update (overwrites the existing local ebook with new version)
+    • {Status.NEW}: new (new ebook downloaded to downloads directory)
+    • {Status.UPDATE}: update (local ebook updated with newer version)
     • {Status.EXTRA}: extraneous (local ebook not found in Standard Ebooks catalog)
     • {Status.UNKNOWN}: unknown (local ebook could not be processed)
 
@@ -42,7 +42,7 @@ _epilog = f"""
 
 
 @dataclass
-class StandardEbook:
+class RemoteEbook:
     """Metadata for ebook in Standard Ebooks OPDS catalog."""
 
     id: str
@@ -89,7 +89,7 @@ def fromisoformat(text: str) -> datetime:
     )
 
 
-def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, StandardEbook]:
+def catalog_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, RemoteEbook]:
     """Return Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
     ebooks = {}
@@ -97,7 +97,7 @@ def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, Standar
     response.raw.decode_content = True
     root = ElementTree.parse(response.raw).getroot()
     for entry in root.iterfind(".//atom:entry", ns):
-        ebook = StandardEbook(
+        ebook = RemoteEbook(
             id=entry.find("dc:identifier", ns).text,
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
@@ -110,7 +110,7 @@ def get_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, Standar
     return ebooks
 
 
-def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
+def catalog_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
     """Return metadata of Standard EPUBs in the specified directory and subdirectories."""
     ebooks = {}
     for path in dir.glob("**/*.epub"):
@@ -145,8 +145,9 @@ def get_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
     return ebooks
 
 
-def download_ebook(url: str, path: Path) -> None:
+def download_ebook(url: str, path: Path, status: str) -> None:
     """Download the ebook at the specified URL into the specified path."""
+    echo_status(path, status)
     if _dry_run:
         return
     download = path.with_suffix(".sebsync")
@@ -176,8 +177,24 @@ def sortable_author(author: str) -> str:
     return result
 
 
-def ebook_filename(ebook: StandardEbook) -> str:
-    """Return an EPUB file name for Standard ebook."""
+def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> bool:
+    """Return if differences between local and remote ebooks are detected."""
+
+    # if metadata has exact modification times, then local is considered current
+    if remote_ebook.updated == local_ebook.modified:
+        return False
+
+    stat = local_ebook.path.stat()
+
+    # if timestamp of remote is less than that of local file, assume local is current
+    if remote_ebook.updated < datetime.fromtimestamp(stat.st_mtime, timezone.utc):
+        return False
+
+    return True
+
+
+def ebook_filename(ebook: RemoteEbook) -> str:
+    """Return an EPUB file name for remote ebook."""
     replace = {"/": "-", "‘": "'", "’": "'", '"': "'", "“": "'", "”": "'"}
     match _naming:
         case "standard":
@@ -204,7 +221,7 @@ def ebook_filename(ebook: StandardEbook) -> str:
 )
 @click.option(
     "--force-update",
-    help="Force update of all local ebooks.",
+    help="Force update of all local ebooks (implies --update).",
     is_flag=True,
 )
 @click.option(
@@ -241,6 +258,11 @@ def ebook_filename(ebook: StandardEbook) -> str:
     default="compatible",
 )
 @click.option(
+    "--update/--no-update",
+    help="Download updates into existing local ebook files.",
+    default=True,
+)
+@click.option(
     "--verbose",
     help="Increase verbosity.",
     is_flag=True,
@@ -256,8 +278,12 @@ def sebsync(
     opds: str,
     quiet: bool,
     type: str,
+    update: bool,
     verbose: bool,
 ):
+    if force_update:
+        update = True
+
     global _dry_run
     global _verbose
     global _quiet
@@ -268,23 +294,25 @@ def sebsync(
     _quiet = quiet
     _verbose = verbose and not quiet  # quiet wins
 
-    remote_ebooks = get_remote_ebooks(opds, email, type)
+    remote_ebooks = catalog_remote_ebooks(opds, email, type)
     if _verbose:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
-    local_ebooks = get_local_ebooks(downloads) | get_local_ebooks(books)
+    local_ebooks = catalog_local_ebooks(books)
     if _verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
 
     for remote_ebook in remote_ebooks.values():
-        if local_ebook := local_ebooks.get(remote_ebook.id):
-            if remote_ebook.updated != local_ebook.modified or force_update:
-                echo_status(local_ebook.path, Status.UPDATE)
-                download_ebook(remote_ebook.href, local_ebook.path)
+        local_ebook = local_ebooks.get(remote_ebook.id)
+        download_path = downloads / ebook_filename(remote_ebook)
+        if local_ebook:
+            if force_update or books_are_different(local_ebook, remote_ebook):
+                if update:
+                    download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
+                else:
+                    download_ebook(remote_ebook.href, download_path, Status.NEW)
         else:
-            path = downloads / ebook_filename(remote_ebook)
-            echo_status(path, Status.NEW)
-            download_ebook(remote_ebook.href, path)
+            download_ebook(remote_ebook.href, download_path, Status.NEW)
 
     for local_ebook in local_ebooks.values():
         if local_ebook.id not in remote_ebooks:
