@@ -178,7 +178,7 @@ def sortable_author(author: str) -> str:
 
 
 def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> bool:
-    """Return if differences between local and remote ebooks are detected."""
+    """Return if differences are detected between local and remote ebooks."""
 
     # if metadata has exact modification times, then local is considered current
     if remote_ebook.updated == local_ebook.modified:
@@ -186,11 +186,16 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
 
     stat = local_ebook.path.stat()
 
-    # if timestamp of remote is less than that of local file, assume local is current
-    if remote_ebook.updated < datetime.fromtimestamp(stat.st_mtime, timezone.utc):
-        return False
+    file_modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+    if remote_ebook.updated > file_modified:
+        return True
 
-    return True
+    response = requests.head(remote_ebook.href)
+    content_length = int(response.headers["Content-Length"])
+    if content_length != stat.st_size:
+        return True
+
+    return False
 
 
 def ebook_filename(ebook: RemoteEbook) -> str:
@@ -220,11 +225,6 @@ def ebook_filename(ebook: RemoteEbook) -> str:
     default=if_exists(Path.home() / "Downloads"),
 )
 @click.option(
-    "--force-update",
-    help="Force update of all local ebooks (implies --update).",
-    is_flag=True,
-)
-@click.option(
     "--dry-run",
     help="Perform a trial run with no changes made.",
     is_flag=True,
@@ -233,6 +233,11 @@ def ebook_filename(ebook: RemoteEbook) -> str:
     "--email",
     help="Email address to authenticate with Standard Ebooks.",
     required=True,
+)
+@click.option(
+    "--force-update",
+    help="Force update of all local ebooks (implies --update).",
+    is_flag=True,
 )
 @click.help_option()
 @click.option(
