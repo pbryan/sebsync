@@ -12,12 +12,8 @@ from requests.auth import HTTPBasicAuth
 from urllib.parse import urlparse
 
 
-_dry_run: bool = False
-_quiet: bool = False
-_verbose: bool = False
-
-
 class Status:
+    CURRENT = click.style("C", fg="white")
     NEW = click.style("N", fg="green")
     UPDATE = click.style("U", fg="blue")
     EXTRA = click.style("X", fg="yellow")
@@ -27,8 +23,8 @@ class Status:
 _epilog = f"""
     \b
     Download naming conventions:
-    • standard: Standard Ebooks' naming (e.g. "edwin-a-abbott_flatland.epub")
-    • sortable: sortable author/title (e.g. "Abbott, Edwin A. - Flatland.epub")
+    • standard: Standard Ebooks’ naming (e.g. “edwin-a-abbott_flatland.epub”)
+    • sortable: sortable author/title (e.g. “Abbott, Edwin A. - Flatland.epub”)
 
     \b
     Reported file statuses:
@@ -36,6 +32,8 @@ _epilog = f"""
     • {Status.UPDATE}: update (local ebook updated with newer version)
     • {Status.EXTRA}: extraneous (local ebook not found in Standard Ebooks catalog)
     • {Status.UNKNOWN}: unknown (local ebook could not be processed)
+    • {Status.CURRENT}: current (local ebook is up-to-date; displayed in verbose)
+
 
     See https://github.com/pbryan/sebsync/ for updates, bug reports and answers.
 """
@@ -71,7 +69,7 @@ type_selector = {
 
 
 def echo_status(path: Path, status: str) -> None:
-    if not _quiet:
+    if not options.quiet:
         click.echo(f"{status} {path}")
 
 
@@ -110,10 +108,10 @@ def catalog_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, Rem
     return ebooks
 
 
-def catalog_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
+def catalog_local_ebooks() -> dict[str, LocalEbook]:
     """Return metadata of Standard EPUBs in the specified directory and subdirectories."""
     ebooks = {}
-    for path in dir.glob("**/*.epub"):
+    for path in options.books.glob("**/*.epub"):
         if not path.is_file():
             continue
         try:
@@ -148,7 +146,7 @@ def catalog_local_ebooks(dir: Path) -> dict[str, LocalEbook]:
 def download_ebook(url: str, path: Path, status: str) -> None:
     """Download the ebook at the specified URL into the specified path."""
     echo_status(path, status)
-    if _dry_run:
+    if options.dry_run:
         return
     download = path.with_suffix(".sebsync")
     response = requests.get(url, stream=True)
@@ -201,7 +199,7 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
 def ebook_filename(ebook: RemoteEbook) -> str:
     """Return an EPUB file name for remote ebook."""
     replace = {"/": "-", "‘": "'", "’": "'", '"': "'", "“": "'", "”": "'"}
-    match _naming:
+    match options.naming:
         case "standard":
             result = Path(urlparse(ebook.href).path).name
         case "sortable":
@@ -209,6 +207,26 @@ def ebook_filename(ebook: RemoteEbook) -> str:
     for k, v in replace.items():
         result = result.replace(k, v)
     return result
+
+
+@dataclass
+class Options:
+    """Command line options."""
+
+    books: Path
+    downloads: Path
+    dry_run: bool
+    email: str
+    force_update: bool
+    naming: str
+    opds: str
+    quiet: bool
+    type: str
+    update: bool
+    verbose: bool
+
+
+options: Options = None
 
 
 @click.command(help=__doc__, epilog=_epilog)
@@ -264,7 +282,7 @@ def ebook_filename(ebook: RemoteEbook) -> str:
 )
 @click.option(
     "--update/--no-update",
-    help="Download updates into existing local ebook files.",
+    help="Update existing local ebook files.",
     default=True,
 )
 @click.option(
@@ -273,49 +291,36 @@ def ebook_filename(ebook: RemoteEbook) -> str:
     is_flag=True,
 )
 @click.version_option(package_name="sebsync")
-def sebsync(
-    books: Path,
-    downloads: Path,
-    dry_run: bool,
-    email: str,
-    force_update: bool,
-    naming: str,
-    opds: str,
-    quiet: bool,
-    type: str,
-    update: bool,
-    verbose: bool,
-):
-    if force_update:
-        update = True
+def sebsync(**kwargs):
 
-    global _dry_run
-    global _verbose
-    global _quiet
-    global _naming
+    global options
+    options = Options(**kwargs)
 
-    _dry_run = dry_run
-    _naming = naming
-    _quiet = quiet
-    _verbose = verbose and not quiet  # quiet wins
+    if options.force_update:
+        options.update = True
 
-    remote_ebooks = catalog_remote_ebooks(opds, email, type)
-    if _verbose:
+    options.verbose = options.verbose and not options.quiet  # quiet wins
+
+    remote_ebooks = catalog_remote_ebooks(options.opds, options.email, options.type)
+    if options.verbose:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
-    local_ebooks = catalog_local_ebooks(books)
-    if _verbose:
+    local_ebooks = catalog_local_ebooks()
+    if options.verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
 
     for remote_ebook in remote_ebooks.values():
         local_ebook = local_ebooks.get(remote_ebook.id)
-        download_path = downloads / ebook_filename(remote_ebook)
+        download_path = options.downloads / ebook_filename(remote_ebook)
         if local_ebook:
-            if force_update or books_are_different(local_ebook, remote_ebook):
-                if update:
+            if options.force_update or books_are_different(local_ebook, remote_ebook):
+                if options.update:
                     download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
                 else:
                     download_ebook(remote_ebook.href, download_path, Status.NEW)
+            elif options.verbose:
+                echo_status(local_ebook.path, Status.CURRENT)
+
         else:
             download_ebook(remote_ebook.href, download_path, Status.NEW)
 
