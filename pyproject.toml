@@ -8,7 +8,7 @@ target-version = ['py312']
 
 [tool.poetry]
 name = "sebsync"
-version = "1.0.3"
+version = "1.0.4"
 description = "Synchronize Standard Ebooks catalog with local EPUB collection."
 readme = "README.md"
 authors = ["sebsync authors"]
