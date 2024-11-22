@@ -14,9 +14,10 @@ directory. If an updated version of a book is detected in the catalog that is al
 local filesystem, then the updated version will be downloaded and stored in the existing local
 file.
 
-The script also detects extraneous local ebooks (local ebooks not found in the Standard
-Ebooks catalog). This can can occur when Standard Ebooks changes the identifier of a previously
-published ebook. It's a rare occurrence, and it's generally safe to delete such files.
+The script can also display and/or remove outdated and/or deprecated ebooks. A local ebook file
+is “deprecated” if its identifier has been replaced by a new identifier in the Standard Ebooks
+catalog. This occurs when a book is renamed or substantially revised. Its replacement will be
+downloaded as a new ebook.
 
 ## Requirements
 
