@@ -16,8 +16,10 @@ class Status:
     CURRENT = click.style("C", fg="white")
     NEW = click.style("N", fg="green")
     UPDATE = click.style("U", fg="blue")
-    EXTRA = click.style("X", fg="yellow")
-    UNKNOWN = click.style("?", fg="yellow")
+    REMOVE = click.style("R", fg="yellow")
+    OUTDATED = click.style("O", fg="yellow")
+    EXTRA = click.style("X", fg="red")
+    UNKNOWN = click.style("?", fg="red")
 
 
 _epilog = f"""
@@ -28,12 +30,17 @@ _epilog = f"""
 
     \b
     Reported file statuses:
-    • {Status.NEW}: new (new ebook downloaded to downloads directory)
-    • {Status.UPDATE}: update (local ebook updated with newer version)
-    • {Status.EXTRA}: extraneous (local ebook not found in Standard Ebooks catalog)
-    • {Status.UNKNOWN}: unknown (local ebook could not be processed)
-    • {Status.CURRENT}: current (local ebook is up-to-date; displayed in verbose)
+    • {Status.NEW}: new (ebook downloaded to downloads directory)
+    • {Status.UPDATE}: update (ebook updated with newer version)
+    • {Status.REMOVE}: remove (outdated or deprecated ebook removed)
+    • {Status.OUTDATED}: outdated (ebook has newer version or was deprecated)
+    • {Status.EXTRA}: extraneous (ebook not found in Standard Ebooks catalog)
+    • {Status.UNKNOWN}: unknown (ebook could not be processed)
+    • {Status.CURRENT}: current (ebook is up-to-date; displayed in verbose mode)
 
+    A local ebook file is “deprecated” if its identifier has been replaced by a new identifier
+    in the Standard Ebooks catalog. This occurs when a book is renamed or substantially
+    revised. Its replacement will be downloaded as a new ebook.
 
     See https://github.com/pbryan/sebsync/ for updates, bug reports and answers.
 """
@@ -68,6 +75,11 @@ type_selector = {
 }
 
 
+local_ebooks: list[LocalEbook] = []
+
+remote_ebooks: dict[str, RemoteEbook] = {}
+
+
 def echo_status(path: Path, status: str) -> None:
     if not options.quiet:
         click.echo(f"{status} {path}")
@@ -87,30 +99,39 @@ def fromisoformat(text: str) -> datetime:
     )
 
 
-def catalog_remote_ebooks(opds_url: str, email: str, type: str) -> dict[str, RemoteEbook]:
-    """Return Standard Ebooks metadata for EPUBs from the OPDS catalog."""
+def request(**kwargs):
+    """Send an HTTP request."""
+    if options.debug:
+        click.echo(f"{kwargs['method']} {kwargs['url']}", nl=False)
+    response = requests.request(**kwargs)
+    if options.debug:
+        click.echo(f" → {response.status_code} {response.reason}")
+    return response
+
+
+def get_remote_ebooks() -> None:
+    """Retrieve Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
-    ebooks = {}
-    response = requests.get(opds_url, stream=True, auth=HTTPBasicAuth(email, ""))
+    response = request(method="GET", url=options.opds, stream=True, auth=HTTPBasicAuth(options.email, ""))
     response.raw.decode_content = True
     root = ElementTree.parse(response.raw).getroot()
     for entry in root.iterfind(".//atom:entry", ns):
-        ebook = RemoteEbook(
+        remote_ebook = RemoteEbook(
             id=entry.find("dc:identifier", ns).text,
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
-            href=entry.find(f".//atom:link[@title='{type_selector[type]}']", ns).attrib["href"],
+            href=entry.find(f".//atom:link[@title='{type_selector[options.type]}']", ns).attrib["href"],
             updated=fromisoformat(entry.find("atom:updated", ns).text),
         )
-        ebooks[ebook.id] = ebook
-    if not ebooks:
+        remote_ebooks[remote_ebook.id] = remote_ebook
+    if not remote_ebooks:
         raise click.ClickException("OPDS catalog download failed. Is email address correct?")
-    return ebooks
+    if options.verbose:
+        click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
 
-def catalog_local_ebooks() -> dict[str, LocalEbook]:
-    """Return metadata of Standard EPUBs in the specified directory and subdirectories."""
-    ebooks = {}
+def get_local_ebooks() -> None:
+    """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
     for path in options.books.glob("**/*.epub"):
         if not path.is_file():
             continue
@@ -131,16 +152,17 @@ def catalog_local_ebooks() -> dict[str, LocalEbook]:
                     if id is None or "standardebooks.org" not in id.text:
                         continue
                     modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
-                    ebook = LocalEbook(
+                    local_ebook = LocalEbook(
                         id=id.text,
                         title=metadata.find(".//dc:title", ns).text,
                         path=path,
                         modified=fromisoformat(modified.text),
                     )
-                    ebooks[ebook.id] = ebook
+                    local_ebooks.append(local_ebook)
         except:
             echo_status(path, Status.UNKNOWN)
-    return ebooks
+    if options.verbose:
+        click.echo(f"Found {len(local_ebooks)} local ebooks.")
 
 
 def download_ebook(url: str, path: Path, status: str) -> None:
@@ -149,7 +171,7 @@ def download_ebook(url: str, path: Path, status: str) -> None:
     if options.dry_run:
         return
     download = path.with_suffix(".sebsync")
-    response = requests.get(url, stream=True)
+    response = request(method="GET", url=url, stream=True)
     with download.open("wb") as file:
         for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
             file.write(chunk)
@@ -188,7 +210,7 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
     if remote_ebook.updated > file_modified:
         return True
 
-    response = requests.head(remote_ebook.href)
+    response = request(method="HEAD", url=remote_ebook.href)
     content_length = int(response.headers["Content-Length"])
     if content_length != stat.st_size:
         return True
@@ -209,11 +231,27 @@ def ebook_filename(ebook: RemoteEbook) -> str:
     return result
 
 
+def is_deprecated(local_ebook: LocalEbook) -> bool:
+    """Return if the specified book identifier is deprecated."""
+    if not local_ebook.id.startswith("url:"):
+        raise ValueError("expect identifier to begin with 'url:'")
+    response = request(method="HEAD", url=local_ebook.id[4:], allow_redirects=False)
+    return response.status_code == 301 and f"url:{response.headers['Location']}" in remote_ebooks
+
+
+def remove(local_ebook: LocalEbook) -> None:
+    """Remove the local ebook from the filesystem."""
+    echo_status(local_ebook.path, Status.REMOVE)
+    if not options.dry_run:
+        local_ebook.path.unlink()
+
+
 @dataclass
 class Options:
     """Command line options."""
 
     books: Path
+    debug: bool
     downloads: Path
     dry_run: bool
     email: str
@@ -221,6 +259,7 @@ class Options:
     naming: str
     opds: str
     quiet: bool
+    remove: bool
     type: str
     update: bool
     verbose: bool
@@ -235,6 +274,11 @@ options: Options = None
     help="Directory where local books are stored.",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
     default=if_exists(Path.home() / "Books"),
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    hidden=True,
 )
 @click.option(
     "--downloads",
@@ -275,6 +319,12 @@ options: Options = None
     is_flag=True,
 )
 @click.option(
+    "--remove/--no-remove",
+    help="Remove outdated or deprecated local ebook files.",
+    is_flag=True,
+    default=False,
+)
+@click.option(
     "--type",
     type=click.Choice(list(type_selector.keys())),
     help="EPUB type to download.",
@@ -296,37 +346,50 @@ def sebsync(**kwargs):
     global options
     options = Options(**kwargs)
 
+    # --force-update implies --update
     if options.force_update:
         options.update = True
 
-    options.verbose = options.verbose and not options.quiet  # quiet wins
+    # --quiet wins over --verbose
+    options.verbose = options.verbose and not options.quiet
 
-    remote_ebooks = catalog_remote_ebooks(options.opds, options.email, options.type)
-    if options.verbose:
-        click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
-
-    local_ebooks = catalog_local_ebooks()
-    if options.verbose:
-        click.echo(f"Found {len(local_ebooks)} local ebooks.")
+    get_remote_ebooks()
+    get_local_ebooks()
 
     for remote_ebook in remote_ebooks.values():
-        local_ebook = local_ebooks.get(remote_ebook.id)
-        download_path = options.downloads / ebook_filename(remote_ebook)
-        if local_ebook:
-            if options.force_update or books_are_different(local_ebook, remote_ebook):
+        matching_local_ebooks = [l for l in local_ebooks if l.id == remote_ebook.id]
+        download_new = True
+        if matching_local_ebooks:
+            for local_ebook in matching_local_ebooks:
                 if options.update:
-                    download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
+                    download_new = False
+                    if options.force_update or books_are_different(local_ebook, remote_ebook):
+                        download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
+                    elif options.verbose:
+                        echo_status(local_ebook.path, Status.CURRENT)
                 else:
-                    download_ebook(remote_ebook.href, download_path, Status.NEW)
-            elif options.verbose:
-                echo_status(local_ebook.path, Status.CURRENT)
+                    if books_are_different(local_ebook, remote_ebook):
+                        if options.remove:
+                            remove(local_ebook)
+                        else:
+                            echo_status(local_ebook.path, Status.OUTDATED)
+                    else:
+                        download_new = False  # at least one local ebook already matches
+                        if options.verbose:
+                            echo_status(local_ebook.path, Status.CURRENT)
+        if download_new:
+            path = options.downloads / ebook_filename(remote_ebook)
+            download_ebook(remote_ebook.href, path, Status.NEW)
 
-        else:
-            download_ebook(remote_ebook.href, download_path, Status.NEW)
-
-    for local_ebook in local_ebooks.values():
+    for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
-            echo_status(local_ebook.path, Status.EXTRA)
+            if is_deprecated(local_ebook):
+                    if options.remove:
+                        remove(local_ebook)
+                    else:
+                        echo_status(local_ebook.path, Status.OUTDATED)
+            else:
+                echo_status(local_ebook.path, Status.EXTRA)
 
 
 def main():
