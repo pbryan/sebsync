@@ -29,6 +29,12 @@ becoming one. It's a tremendously valuable project, deserving of your support.
 
 ## Installation
 
+It is easy to install sebsync using [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/stable/):
+
+```
+uv tool install sebsync
+```
+or
 ```
 pipx install sebsync
 ```
@@ -47,15 +53,9 @@ A1. This is a feature for those who want to easily recognize new ebooks, and to 
 rename and/or categorize them within their library. If this feature is not useful for you,
 simply set `--downloads` to be the same directory as `--books`.
 
-Q2. *What is pipx?*
+Q2. *Does this script support Kindle books?*
 
-A2. [pipx](https://pipx.pypa.io/) is a utility that allows Python packages like sebsync to
-be installed in an isolated environment. This makes it really easy to install and run such
-scripts without interfering with other Python package installations.
-
-Q3. *Does this script support Kindle books?*
-
-A3. Not presently. A cursory analysis of the Standard Ebooks AZW3 structure suggests that there
+A2. Not presently. A cursory analysis of the Standard Ebooks AZW3 structure suggests that there
 currently isn't a reliable method to reconcile Kindle ebooks with the OPDS feed catalog. If
 this feature is important to you, please let us know by voting for
 [this issue](https://github.com/pbryan/sebsync/issues/2) in GitHub.
