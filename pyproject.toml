@@ -1,19 +1,11 @@
-[build-system]
-requires = ["poetry>=1.8"]
-build-backend = "poetry.masonry.api"
-
-[tool.black]
-line-length = 96
-target-version = ['py312']
-
-[tool.poetry]
+[project]
 name = "sebsync"
 version = "1.0.6"
 description = "Synchronize Standard Ebooks catalog with local EPUB collection."
 readme = "README.md"
-authors = ["sebsync authors"]
+requires-python = ">=3.10"
+dependencies = [ "click", "requests" ]
 homepage = "https://github.com/pbryan/sebsync/"
-license = "MIT"
 keywords = ["standard", "ebook", "book", "synchronization", "sync", "download"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -22,25 +14,27 @@ classifiers = [
     "Topic :: System :: Archiving :: Mirroring",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-click = "^8.1"
-requests = "^2.32"
+[[project.authors]]
+name = "sebsync authors"
 
-[tool.poetry.dev-dependencies]
-black = "^24.10"
-isort = "^5.13"
-pre-commit = "^4.0"
-pytest = "^8.3"
-pytest-cov = "^6.0"
+[project.license]
+text = "MIT"
 
-[tool.isort]
-profile = "black"
-lexicographical = true
-lines_after_imports = 2
-lines_between_types = 1
-line_length = 96
-no_sections = true
-
-[tool.poetry.scripts]
+[project.scripts]
 sebsync = "sebsync:main"
+
+[dependency-groups]
+dev = [ "pytest", "ruff" ]
+
+[build-system]
+requires = [ "hatchling" ]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 96
+target-version = "py313"
+
+[tool.ruff.lint.isort]
+no-sections = true
+lines-after-imports = 2
+lines-between-types = 1
