@@ -196,7 +196,7 @@ wheels = [
 
 [[package]]
 name = "sebsync"
-version = "1.0.8"
+version = "1.0.10"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
