@@ -5,23 +5,23 @@ description = "Synchronize Standard Ebooks catalog with local EPUB collection."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [ "click", "requests" ]
-homepage = "https://github.com/pbryan/sebsync/"
 keywords = ["standard", "ebook", "book", "synchronization", "sync", "download"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
+    "License :: OSI Approved :: Zero-Clause BSD (0BSD)",
     "Intended Audience :: End Users/Desktop",
     "Topic :: System :: Archiving :: Mirroring",
 ]
 
 [[project.authors]]
-name = "sebsync authors"
-
-[project.license]
-text = "0BSD"
+name = "Sebsync authors"
 
 [project.scripts]
 sebsync = "sebsync:main"
+
+[project.urls]
+homepage = "https://github.com/pbryan/sebsync/"
 
 [dependency-groups]
 dev = [ "pytest", "ruff" ]
