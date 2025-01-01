@@ -112,7 +112,12 @@ def request(**kwargs):
 def get_remote_ebooks() -> None:
     """Retrieve Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
-    response = request(method="GET", url=options.opds, stream=True, auth=HTTPBasicAuth(options.email, ""))
+    response = request(
+        method="GET",
+        url=options.opds,
+        stream=True,
+        auth=HTTPBasicAuth(options.email, ""),
+    )
     response.raw.decode_content = True
     root = ElementTree.parse(response.raw).getroot()
     for entry in root.iterfind(".//atom:entry", ns):
@@ -120,7 +125,9 @@ def get_remote_ebooks() -> None:
             id=entry.find("dc:identifier", ns).text,
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
-            href=entry.find(f".//atom:link[@title='{type_selector[options.type]}']", ns).attrib["href"],
+            href=entry.find(f".//atom:link[@title='{type_selector[options.type]}']", ns).attrib[
+                "href"
+            ],
             updated=fromisoformat(entry.find("atom:updated", ns).text),
         )
         remote_ebooks[remote_ebook.id] = remote_ebook
@@ -159,7 +166,7 @@ def get_local_ebooks() -> None:
                         modified=fromisoformat(modified.text),
                     )
                     local_ebooks.append(local_ebook)
-        except:
+        except Exception:
             echo_status(path, Status.UNKNOWN)
     if options.verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
@@ -236,7 +243,9 @@ def is_deprecated(local_ebook: LocalEbook) -> bool:
     if not local_ebook.id.startswith("url:"):
         raise ValueError("expect identifier to begin with 'url:'")
     response = request(method="HEAD", url=local_ebook.id[4:], allow_redirects=False)
-    return response.status_code == 301 and f"url:{response.headers['Location']}" in remote_ebooks
+    return (
+        response.status_code == 301 and f"url:{response.headers['Location']}" in remote_ebooks
+    )
 
 
 def remove(local_ebook: LocalEbook) -> None:
@@ -342,7 +351,6 @@ options: Options = None
 )
 @click.version_option(package_name="sebsync")
 def sebsync(**kwargs):
-
     global options
     options = Options(**kwargs)
 
@@ -357,7 +365,7 @@ def sebsync(**kwargs):
     get_local_ebooks()
 
     for remote_ebook in remote_ebooks.values():
-        matching_local_ebooks = [l for l in local_ebooks if l.id == remote_ebook.id]
+        matching_local_ebooks = [b for b in local_ebooks if b.id == remote_ebook.id]
         download_new = True
         if matching_local_ebooks:
             for local_ebook in matching_local_ebooks:
@@ -384,10 +392,10 @@ def sebsync(**kwargs):
     for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
             if is_deprecated(local_ebook):
-                    if options.remove:
-                        remove(local_ebook)
-                    else:
-                        echo_status(local_ebook.path, Status.OUTDATED)
+                if options.remove:
+                    remove(local_ebook)
+                else:
+                    echo_status(local_ebook.path, Status.OUTDATED)
             else:
                 echo_status(local_ebook.path, Status.EXTRA)
 
