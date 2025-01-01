@@ -18,7 +18,7 @@ classifiers = [
 name = "sebsync authors"
 
 [project.license]
-text = "MIT"
+text = "0BSD"
 
 [project.scripts]
 sebsync = "sebsync:main"
