@@ -21,7 +21,7 @@ name = "Sebsync authors"
 sebsync = "sebsync:main"
 
 [project.urls]
-homepage = "https://github.com/pbryan/sebsync/"
+Repository = "https://github.com/pbryan/sebsync/"
 
 [dependency-groups]
 dev = [ "pytest", "ruff" ]
