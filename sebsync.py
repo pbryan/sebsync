@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from requests.auth import HTTPBasicAuth
+from shutil import get_terminal_size
 from urllib.parse import urlparse
 
 
@@ -25,22 +26,22 @@ class Status:
 _epilog = f"""
     \b
     Download naming conventions:
-    • standard: Standard Ebooks’ naming (e.g. “edwin-a-abbott_flatland.epub”)
+    • standard: Standard Ebooks naming (e.g. “edwin-a-abbott_flatland.epub”)
     • sortable: sortable author/title (e.g. “Abbott, Edwin A. - Flatland.epub”)
 
     \b
     Reported file statuses:
     • {Status.NEW}: new (ebook downloaded to downloads directory)
     • {Status.UPDATE}: update (ebook updated with newer version)
-    • {Status.REMOVE}: remove (outdated or deprecated ebook removed)
     • {Status.OUTDATED}: outdated (ebook has newer version or was deprecated)
+    • {Status.REMOVE}: remove (outdated or deprecated ebook removed)
     • {Status.EXTRA}: extraneous (ebook not found in Standard Ebooks catalog)
     • {Status.UNKNOWN}: unknown (ebook could not be processed)
     • {Status.CURRENT}: current (ebook is up-to-date; displayed in verbose mode)
 
     A local ebook file is “deprecated” if its identifier has been replaced by a new identifier
     in the Standard Ebooks catalog. This occurs when a book is renamed or substantially
-    revised. Its replacement will be downloaded as a new ebook.
+    revised. Its replacement is downloaded as a new ebook.
 
     See https://github.com/pbryan/sebsync/ for updates, bug reports and answers.
 """
@@ -277,7 +278,12 @@ class Options:
 options: Options = None
 
 
-@click.command(help=__doc__, epilog=_epilog)
+context_settings = {
+    "max_content_width": get_terminal_size().columns - 2,
+}
+
+
+@click.command(context_settings=context_settings, help=__doc__, epilog=_epilog)
 @click.option(
     "--books",
     help="Directory where local books are stored.",
