@@ -233,7 +233,9 @@ def ebook_filename(ebook: RemoteEbook) -> str:
         case "standard":
             result = Path(urlparse(ebook.href).path).name
         case "sortable":
-            result = f"{sortable_author(ebook.author)} - {ebook.title}.epub"
+            author = sortable_author(ebook.author)
+            title = ebook.title.rstrip(".")
+            result = f"{author} - {title}.epub"
     for k, v in replace.items():
         result = result.replace(k, v)
     return result
