@@ -129,14 +129,16 @@ def get_remote_ebooks() -> None:
             id=entry.find("dc:identifier", ns).text,
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
-            href=entry.find(f".//atom:link[@title='{type_selector[options.type]}']", ns).attrib[
-                "href"
-            ],
+            href=entry.find(
+                f".//atom:link[@title='{type_selector[options.type]}']", ns
+            ).attrib["href"],
             updated=fromisoformat(entry.find("atom:updated", ns).text),
         )
         remote_ebooks[remote_ebook.id] = remote_ebook
     if not remote_ebooks:
-        raise click.ClickException("OPDS catalog download failed. Is email address correct?")
+        raise click.ClickException(
+            "OPDS catalog download failed. Is email address correct?"
+        )
     if options.verbose:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
@@ -278,7 +280,8 @@ def is_deprecated(local_ebook: LocalEbook) -> bool:
         raise ValueError("expect identifier to begin with 'url:'")
     response = request(method="HEAD", url=local_ebook.id[4:], allow_redirects=False)
     return (
-        response.status_code == 301 and f"url:{response.headers['Location']}" in remote_ebooks
+        response.status_code == 301
+        and f"url:{response.headers['Location']}" in remote_ebooks
     )
 
 
@@ -320,7 +323,9 @@ context_settings = {
 @click.option(
     "--books",
     help="Directory where local books are stored.",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
+    type=click.Path(
+        exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path
+    ),
     default=if_exists(Path.home() / "Books"),
 )
 @click.option(
@@ -331,7 +336,9 @@ context_settings = {
 @click.option(
     "--downloads",
     help="Directory where new ebooks are downloaded.",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
+    type=click.Path(
+        exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path
+    ),
     default=if_exists(Path.home() / "Downloads"),
 )
 @click.option(
