@@ -1,6 +1,8 @@
 """Synchronize Standard Ebooks catalog with local EPUB collection."""
 
 import click
+import os
+import pickle
 import requests
 import xml.etree.ElementTree as ElementTree
 import zipfile
@@ -73,6 +75,7 @@ type_selector = {
     "compatible": "Recommended compatible epub",
     "kobo": "Kobo Kepub epub",
     "advanced": "Advanced epub",
+    "kindle": "Amazon Kindle azw3",
 }
 
 
@@ -138,37 +141,65 @@ def get_remote_ebooks() -> None:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
 
-def get_local_ebooks() -> None:
+def get_local_ebooks(kindle_cache: dict) -> None:
     """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
-    for path in options.books.glob("**/*.epub"):
-        if not path.is_file():
-            continue
-        try:
-            with zipfile.ZipFile(path) as zip:
-                with zip.open("META-INF/container.xml") as file:
-                    root = ElementTree.parse(file)
-                    ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
-                    rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
-                with zip.open(rootfile) as file:
-                    root = ElementTree.parse(file)
-                    ns = {
-                        "opf": "http://www.idpf.org/2007/opf",
-                        "dc": "http://purl.org/dc/elements/1.1/",
-                    }
-                    metadata = root.find("opf:metadata", ns)
-                    id = metadata.find("dc:identifier", ns)
-                    if id is None or "standardebooks.org" not in id.text:
-                        continue
-                    modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
+    if options.type == "kindle":
+
+        # Retrieve the id and title for Kindle books from our cache file since it
+        # doesn't seem we can easily get this information from the files directly.
+
+        for path in options.books.glob("**/*.azw3"):
+            if not path.is_file():
+                continue
+            try:
+                filename = os.path.basename(path)
+                if filename in kindle_cache:
                     local_ebook = LocalEbook(
-                        id=id.text,
-                        title=metadata.find(".//dc:title", ns).text,
+                        id=kindle_cache[filename].get("id"),
+                        title=kindle_cache[filename].get("title"),
                         path=path,
-                        modified=fromisoformat(modified.text),
+                        modified=kindle_cache[filename].get("modified"),
                     )
                     local_ebooks.append(local_ebook)
-        except Exception:
-            echo_status(path, Status.UNKNOWN)
+            except Exception:
+                echo_status(path, Status.UNKNOWN)
+
+    else:
+        for path in options.books.glob("**/*.epub"):
+            if not path.is_file():
+                continue
+            try:
+                with zipfile.ZipFile(path) as zip:
+                    with zip.open("META-INF/container.xml") as file:
+                        root = ElementTree.parse(file)
+                        ns = {
+                            "container": "urn:oasis:names:tc:opendocument:xmlns:container"
+                        }
+                        rootfile = root.find(".//container:rootfile", ns).attrib[
+                            "full-path"
+                        ]
+                    with zip.open(rootfile) as file:
+                        root = ElementTree.parse(file)
+                        ns = {
+                            "opf": "http://www.idpf.org/2007/opf",
+                            "dc": "http://purl.org/dc/elements/1.1/",
+                        }
+                        metadata = root.find("opf:metadata", ns)
+                        id = metadata.find("dc:identifier", ns)
+                        if id is None or "standardebooks.org" not in id.text:
+                            continue
+                        modified = metadata.find(
+                            ".//opf:meta[@property='dcterms:modified']", ns
+                        )
+                        local_ebook = LocalEbook(
+                            id=id.text,
+                            title=metadata.find(".//dc:title", ns).text,
+                            path=path,
+                            modified=fromisoformat(modified.text),
+                        )
+                        local_ebooks.append(local_ebook)
+            except Exception:
+                echo_status(path, Status.UNKNOWN)
     if options.verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
 
@@ -369,8 +400,18 @@ def sebsync(**kwargs):
     # --quiet wins over --verbose
     options.verbose = options.verbose and not options.quiet
 
+    # Use a local cache for storing Kindle ebook data
+    kindle_cache = {}
+    if options.type == "kindle":
+        cachefile = Path("kindle.cache")
+        if cachefile.exists() and cachefile.is_file():
+            with open(cachefile, "rb") as f:
+                kindle_cache = pickle.load(f)
+            if options.verbose:
+                click.echo(f"Found {len(kindle_cache)} books in the cache.")
+
     get_remote_ebooks()
-    get_local_ebooks()
+    get_local_ebooks(kindle_cache)
 
     for remote_ebook in remote_ebooks.values():
         matching_local_ebooks = [b for b in local_ebooks if b.id == remote_ebook.id]
@@ -379,14 +420,28 @@ def sebsync(**kwargs):
             for local_ebook in matching_local_ebooks:
                 if options.update:
                     download_new = False
-                    if options.force_update or books_are_different(local_ebook, remote_ebook):
-                        download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
+                    if options.force_update or books_are_different(
+                        local_ebook, remote_ebook
+                    ):
+                        download_ebook(
+                            remote_ebook.href, local_ebook.path, Status.UPDATE
+                        )
+                        kindle_cache[os.path.basename(local_ebook.path)] = {
+                            "id": remote_ebook.id,
+                            "title": remote_ebook.title,
+                            "modified": remote_ebook.updated,
+                        }
                     elif options.verbose:
                         echo_status(local_ebook.path, Status.CURRENT)
                 else:
                     if books_are_different(local_ebook, remote_ebook):
                         if options.remove:
                             remove(local_ebook)
+                            if options.type == "kindle":
+                                kindle_cache.pop(
+                                    os.path.basename(local_ebook.path), None
+                                )
+
                         else:
                             echo_status(local_ebook.path, Status.OUTDATED)
                     else:
@@ -396,16 +451,46 @@ def sebsync(**kwargs):
         if download_new:
             path = options.downloads / ebook_filename(remote_ebook)
             download_ebook(remote_ebook.href, path, Status.NEW)
+            kindle_cache[os.path.basename(path)] = {
+                "id": remote_ebook.id,
+                "title": remote_ebook.title,
+                "modified": remote_ebook.updated,
+            }
 
     for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
             if is_deprecated(local_ebook):
                 if options.remove:
                     remove(local_ebook)
+                    if options.type == "kindle":
+                        kindle_cache.pop(os.path.basename(local_ebook.path), None)
                 else:
                     echo_status(local_ebook.path, Status.OUTDATED)
             else:
                 echo_status(local_ebook.path, Status.EXTRA)
+
+    if options.type == "kindle":
+
+        # Remove titles from the cache if they don't exist locally
+        local_titles = []
+        for path in options.books.glob("**/*.azw3"):
+            if not path.is_file():
+                continue
+            local_titles.append(os.path.basename(path))
+        for path in options.downloads.glob("**/*.azw3"):
+            if not path.is_file():
+                continue
+            local_titles.append(os.path.basename(path))
+
+        for t in list(kindle_cache):
+            if t not in set(local_titles):
+                kindle_cache.pop(t, None)
+                if options.verbose:
+                    click.echo(f"Removed '{t}' from Kindle cache.")
+
+        # Save the cache file
+        with open(cachefile, "wb") as file:
+            pickle.dump(kindle_cache, file)
 
 
 def main():
