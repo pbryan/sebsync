@@ -467,19 +467,23 @@ def sebsync(**kwargs):
                         response_headers = download_ebook(
                             remote_ebook.href, local_ebook.path, Status.UPDATE
                         )
-                        local_cache[os.path.basename(local_ebook.path)] = {
-                            "id": remote_ebook.id,
-                            "title": remote_ebook.title,
-                            "modified": remote_ebook.updated,
-                            "etag": response_headers.get("ETag", None),
-                        }
+                        if not options.dry_run:
+                            local_cache[os.path.basename(local_ebook.path)] = {
+                                "id": remote_ebook.id,
+                                "title": remote_ebook.title,
+                                "modified": remote_ebook.updated,
+                                "etag": response_headers.get("ETag", None),
+                            }
                     elif options.verbose:
                         echo_status(local_ebook.path, Status.CURRENT)
                 else:
                     if books_are_different(local_ebook, remote_ebook):
                         if options.remove:
                             remove(local_ebook)
-                            local_cache.pop(os.path.basename(local_ebook.path), None)
+                            if not options.dry_run:
+                                local_cache.pop(
+                                    os.path.basename(local_ebook.path), None
+                                )
 
                         else:
                             echo_status(local_ebook.path, Status.OUTDATED)
@@ -490,19 +494,21 @@ def sebsync(**kwargs):
         if download_new:
             path = options.downloads / ebook_filename(remote_ebook)
             response_headers = download_ebook(remote_ebook.href, path, Status.NEW)
-            local_cache[os.path.basename(path)] = {
-                "id": remote_ebook.id,
-                "title": remote_ebook.title,
-                "modified": remote_ebook.updated,
-                "etag": response_headers.get("ETag", None),
-            }
+            if not options.dry_run:
+                local_cache[os.path.basename(path)] = {
+                    "id": remote_ebook.id,
+                    "title": remote_ebook.title,
+                    "modified": remote_ebook.updated,
+                    "etag": response_headers.get("ETag", None),
+                }
 
     for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
             if is_deprecated(local_ebook):
                 if options.remove:
                     remove(local_ebook)
-                    local_cache.pop(os.path.basename(local_ebook.path), None)
+                    if not options.dry_run:
+                        local_cache.pop(os.path.basename(local_ebook.path), None)
                 else:
                     echo_status(local_ebook.path, Status.OUTDATED)
             else:
@@ -531,11 +537,12 @@ def sebsync(**kwargs):
 
     # Check each of the titles in the local cache to see if they exist locally;
     # if not, remove the title from the cache
-    for title in list(local_cache):
-        if title not in set(local_titles):
-            local_cache.pop(title, None)
-            if options.verbose:
-                click.echo(f"Removed '{title}' from local cache.")
+    if not options.dry_run:
+        for title in list(local_cache):
+            if title not in set(local_titles):
+                local_cache.pop(title, None)
+                if options.verbose:
+                    click.echo(f"Removed '{title}' from local cache.")
 
     # Add the local file-specific cache back into the cache file and save
     if options.type == "kindle":
