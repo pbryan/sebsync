@@ -163,7 +163,7 @@ def get_local_ebooks(local_cache: dict) -> None:
                         id=local_cache[filename].get("id"),
                         title=local_cache[filename].get("title"),
                         path=path,
-                        modified=local_cache[filename].get("modified"),
+                        modified=fromisoformat(local_cache[filename].get("modified")),
                     )
                     local_ebooks.append(local_ebook)
             except Exception:
@@ -426,10 +426,6 @@ def sebsync(**kwargs):
         local_cache = cache["epub"]
     if options.verbose:
         click.echo(f"Found {len(local_cache)} books in the cache.")
-
-    # Convert the dates in the cache from strings to datetime objects
-    for title in local_cache:
-        local_cache[title]["modified"] = fromisoformat(local_cache[title]["modified"])
 
     get_remote_ebooks()
     get_local_ebooks(local_cache)
