@@ -69,7 +69,6 @@ class LocalEbook:
     title: str
     path: Path
     modified: datetime
-    etag: str
 
 
 # map type selection to link title in OPDS catalog
@@ -146,7 +145,7 @@ def get_remote_ebooks() -> None:
 def get_local_ebooks(local_cache: dict) -> None:
     """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
     if options.type == "kindle":
-        # Retrieve the id, title, modified date, and ETag from our cache file
+        # Retrieve the id, title, and modified date from our cache file
         for path in options.books.glob("**/*.azw3"):
             if not path.is_file():
                 continue
@@ -158,7 +157,6 @@ def get_local_ebooks(local_cache: dict) -> None:
                         title=local_cache[filename].get("title"),
                         path=path,
                         modified=local_cache[filename].get("modified"),
-                        etag=local_cache[filename].get("etag", None),
                     )
                     local_ebooks.append(local_ebook)
             except Exception:
@@ -188,16 +186,11 @@ def get_local_ebooks(local_cache: dict) -> None:
                             ".//opf:meta[@property='dcterms:modified']", ns
                         )
                         filename = os.path.basename(path)
-                        if filename in local_cache:
-                            etag = local_cache[filename].get("etag", None)
-                        else:
-                            etag = None
                         local_ebook = LocalEbook(
                             id=id.text,
                             title=metadata.find(".//dc:title", ns).text,
                             path=path,
                             modified=fromisoformat(modified.text),
-                            etag=etag,
                         )
                         local_ebooks.append(local_ebook)
             except Exception:
@@ -241,14 +234,6 @@ def sortable_author(author: str) -> str:
 
 def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> bool:
     """Return if differences are detected between local and remote ebooks."""
-
-    response = request(method="HEAD", url=remote_ebook.href)
-    remote_etag = response.headers.get("ETag", None)
-    time.sleep(0.2)  # sleep for a moment so we're not sending a torrent of HEAD requests
-    if remote_etag and remote_etag == local_ebook.etag:
-        if options.debug:
-            click.echo(f"{os.path.basename(local_ebook.path)}: ETags are the same")
-        return False
 
     # if metadata has exact modification times, then local is considered current
     if remote_ebook.updated == local_ebook.modified:
@@ -450,7 +435,6 @@ def sebsync(**kwargs):
                                 "id": remote_ebook.id,
                                 "title": remote_ebook.title,
                                 "modified": remote_ebook.updated,
-                                "etag": response_headers.get("ETag", None),
                             }
                     elif options.verbose:
                         echo_status(local_ebook.path, Status.CURRENT)
@@ -475,7 +459,6 @@ def sebsync(**kwargs):
                     "id": remote_ebook.id,
                     "title": remote_ebook.title,
                     "modified": remote_ebook.updated,
-                    "etag": response_headers.get("ETag", None),
                 }
 
     for local_ebook in local_ebooks:
