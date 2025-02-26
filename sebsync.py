@@ -131,16 +131,14 @@ def get_remote_ebooks() -> None:
             id=entry.find("dc:identifier", ns).text,
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
-            href=entry.find(
-                f".//atom:link[@title='{type_selector[options.type]}']", ns
-            ).attrib["href"],
+            href=entry.find(f".//atom:link[@title='{type_selector[options.type]}']", ns).attrib[
+                "href"
+            ],
             updated=fromisoformat(entry.find("atom:updated", ns).text),
         )
         remote_ebooks[remote_ebook.id] = remote_ebook
     if not remote_ebooks:
-        raise click.ClickException(
-            "OPDS catalog download failed. Is email address correct?"
-        )
+        raise click.ClickException("OPDS catalog download failed. Is email address correct?")
     if options.verbose:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
@@ -148,7 +146,6 @@ def get_remote_ebooks() -> None:
 def get_local_ebooks(local_cache: dict) -> None:
     """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
     if options.type == "kindle":
-
         # Retrieve the id, title, modified date, and ETag from our cache file
         for path in options.books.glob("**/*.azw3"):
             if not path.is_file():
@@ -175,12 +172,8 @@ def get_local_ebooks(local_cache: dict) -> None:
                 with zipfile.ZipFile(path) as zip:
                     with zip.open("META-INF/container.xml") as file:
                         root = ElementTree.parse(file)
-                        ns = {
-                            "container": "urn:oasis:names:tc:opendocument:xmlns:container"
-                        }
-                        rootfile = root.find(".//container:rootfile", ns).attrib[
-                            "full-path"
-                        ]
+                        ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
+                        rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
                     with zip.open(rootfile) as file:
                         root = ElementTree.parse(file)
                         ns = {
@@ -251,9 +244,7 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
 
     response = request(method="HEAD", url=remote_ebook.href)
     remote_etag = response.headers.get("ETag", None)
-    time.sleep(
-        0.2
-    )  # sleep for a moment so we're not sending a torrent of HEAD requests
+    time.sleep(0.2)  # sleep for a moment so we're not sending a torrent of HEAD requests
     if remote_etag and remote_etag == local_ebook.etag:
         if options.debug:
             click.echo(f"{os.path.basename(local_ebook.path)}: ETags are the same")
@@ -262,9 +253,7 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
     # if metadata has exact modification times, then local is considered current
     if remote_ebook.updated == local_ebook.modified:
         if options.debug:
-            click.echo(
-                f"{os.path.basename(local_ebook.path)}: Modification dates are the same"
-            )
+            click.echo(f"{os.path.basename(local_ebook.path)}: Modification dates are the same")
         return False
 
     stat = local_ebook.path.stat()
@@ -272,17 +261,13 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
     file_modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
     if remote_ebook.updated > file_modified:
         if options.debug:
-            click.echo(
-                f"{os.path.basename(local_ebook.path)}: Remote file is more recent"
-            )
+            click.echo(f"{os.path.basename(local_ebook.path)}: Remote file is more recent")
         return True
 
     content_length = int(response.headers["Content-Length"])
     if content_length != stat.st_size:
         if options.debug:
-            click.echo(
-                f"{os.path.basename(local_ebook.path)}: File sizes are different"
-            )
+            click.echo(f"{os.path.basename(local_ebook.path)}: File sizes are different")
         return True
 
     return False
@@ -309,8 +294,7 @@ def is_deprecated(local_ebook: LocalEbook) -> bool:
         raise ValueError("expect identifier to begin with 'url:'")
     response = request(method="HEAD", url=local_ebook.id[4:], allow_redirects=False)
     return (
-        response.status_code == 301
-        and f"url:{response.headers['Location']}" in remote_ebooks
+        response.status_code == 301 and f"url:{response.headers['Location']}" in remote_ebooks
     )
 
 
@@ -352,9 +336,7 @@ context_settings = {
 @click.option(
     "--books",
     help="Directory where local books are stored.",
-    type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path
-    ),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
     default=if_exists(Path.home() / "Books"),
 )
 @click.option(
@@ -365,9 +347,7 @@ context_settings = {
 @click.option(
     "--downloads",
     help="Directory where new ebooks are downloaded.",
-    type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path
-    ),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, writable=True, path_type=Path),
     default=if_exists(Path.home() / "Downloads"),
 )
 @click.option(
@@ -461,9 +441,7 @@ def sebsync(**kwargs):
             for local_ebook in matching_local_ebooks:
                 if options.update:
                     download_new = False
-                    if options.force_update or books_are_different(
-                        local_ebook, remote_ebook
-                    ):
+                    if options.force_update or books_are_different(local_ebook, remote_ebook):
                         response_headers = download_ebook(
                             remote_ebook.href, local_ebook.path, Status.UPDATE
                         )
@@ -481,9 +459,7 @@ def sebsync(**kwargs):
                         if options.remove:
                             remove(local_ebook)
                             if not options.dry_run:
-                                local_cache.pop(
-                                    os.path.basename(local_ebook.path), None
-                                )
+                                local_cache.pop(os.path.basename(local_ebook.path), None)
 
                         else:
                             echo_status(local_ebook.path, Status.OUTDATED)
