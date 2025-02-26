@@ -250,6 +250,7 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
             click.echo(f"{os.path.basename(local_ebook.path)}: Remote file is more recent")
         return True
 
+    response = request(method="HEAD", url=remote_ebook.href)
     content_length = int(response.headers["Content-Length"])
     if content_length != stat.st_size:
         if options.debug:
