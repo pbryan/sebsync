@@ -1,8 +1,8 @@
 """Synchronize Standard Ebooks catalog with local EPUB collection."""
 
 import click
+import json
 import os
-import pickle
 import requests
 import time
 import xml.etree.ElementTree as ElementTree
@@ -103,6 +103,12 @@ def fromisoformat(text: str) -> datetime:
     return datetime(
         d.year, d.month, d.day, d.hour, d.minute, d.second, d.microsecond, timezone.utc
     )
+
+
+def toisoformat(d: datetime) -> str:
+    """Convert Python datetime object to string."""
+    if isinstance(d, (datetime)):
+        return d.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def request(**kwargs):
@@ -410,10 +416,8 @@ def sebsync(**kwargs):
     if cachefile.exists() and cachefile.is_file():
         if options.debug:
             click.echo(f"Cache found at {cachefile}")
-        with open(cachefile, "rb") as f:
-            if options.debug:
-                click.echo(f"Cache found at {cachefile}")
-            cache = pickle.load(f)
+        with open(cachefile, "r") as f:
+            cache = json.load(f)
 
     # Get the cache for the specific type of file we're syncing
     if options.type == "kindle":
@@ -422,6 +426,10 @@ def sebsync(**kwargs):
         local_cache = cache["epub"]
     if options.verbose:
         click.echo(f"Found {len(local_cache)} books in the cache.")
+
+    # Convert the dates in the cache from strings to datetime objects
+    for title in local_cache:
+        local_cache[title]["modified"] = fromisoformat(local_cache[title]["modified"])
 
     get_remote_ebooks()
     get_local_ebooks(local_cache)
@@ -517,8 +525,9 @@ def sebsync(**kwargs):
         cache["epub"] = local_cache
 
     os.makedirs(cache_dir, exist_ok=True)
-    with open(cachefile, "wb") as f:
-        pickle.dump(cache, f)
+    with open(cachefile, "w") as f:
+        # JSON can't serialize datetime objects, so they have to be converted to ISO formatted strings
+        json.dump(cache, f, default=toisoformat)
         if options.debug:
             click.echo(f"Saved cache to {cachefile}")
 
