@@ -407,6 +407,8 @@ def sebsync(**kwargs):
     cache_dir = user_cache_dir(appname="sebsync")
     cachefile = Path(cache_dir, "sebsync_index")
     if cachefile.exists() and cachefile.is_file():
+        if options.debug:
+            click.echo(f"Cache found at {cachefile}")
         with open(cachefile, "rb") as f:
             if options.debug:
                 click.echo(f"Cache found at {cachefile}")
