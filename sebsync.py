@@ -11,6 +11,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from platformdirs import *
 from requests.auth import HTTPBasicAuth
 from shutil import get_terminal_size
 from urllib.parse import urlparse
@@ -403,9 +404,12 @@ def sebsync(**kwargs):
 
     # Use a local cache for storing ebook metadata
     cache = {"epub": {}, "kindle": {}}
-    cachefile = Path("local.cache")
+    cache_dir = user_cache_dir(appname="sebsync")
+    cachefile = Path(cache_dir, "sebsync_index")
     if cachefile.exists() and cachefile.is_file():
         with open(cachefile, "rb") as f:
+            if options.debug:
+                click.echo(f"Cache found at {cachefile}")
             cache = pickle.load(f)
 
     # Get the cache for the specific type of file we're syncing
@@ -509,8 +513,11 @@ def sebsync(**kwargs):
     else:
         cache["epub"] = local_cache
 
+    os.makedirs(cache_dir, exist_ok=True)
     with open(cachefile, "wb") as f:
         pickle.dump(cache, f)
+        if options.debug:
+            click.echo(f"Saved cache to {cachefile}")
 
 
 def main():
