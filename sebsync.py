@@ -187,7 +187,6 @@ def get_local_ebooks(local_cache: dict) -> None:
                             local_cache[path.name] = local_cache[entry]
                             local_cache.pop(entry, None)
             except Exception as e:
-                print(e)
                 echo_status(path, Status.UNKNOWN)
 
     else:
