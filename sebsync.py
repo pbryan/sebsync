@@ -1,6 +1,7 @@
 """Synchronize Standard Ebooks catalog with local EPUB collection."""
 
 import click
+import hashlib
 import json
 import os
 import requests
@@ -70,6 +71,7 @@ class LocalEbook:
     title: str
     path: Path
     modified: datetime
+    hexdigest: str
 
 
 # map type selection to link title in OPDS catalog
@@ -152,21 +154,40 @@ def get_remote_ebooks() -> None:
 def get_local_ebooks(local_cache: dict) -> None:
     """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
     if options.type == "kindle":
-        # Retrieve the id, title, and modified date from our cache file
+        # Retrieve the id, title, path, modified date, and hexdigest from our cache file
         for path in options.books.glob("**/*.azw3"):
             if not path.is_file():
                 continue
             try:
-                filename = os.path.basename(path)
-                if filename in local_cache:
+                if path.name in local_cache:
                     local_ebook = LocalEbook(
-                        id=local_cache[filename].get("id"),
-                        title=local_cache[filename].get("title"),
+                        id=local_cache[path.name].get("id"),
+                        title=local_cache[path.name].get("title"),
                         path=path,
-                        modified=fromisoformat(local_cache[filename].get("modified")),
+                        modified=fromisoformat(local_cache[path.name].get("modified")),
+                        hexdigest=local_cache[path.name].get("hexdigest"),
                     )
                     local_ebooks.append(local_ebook)
-            except Exception:
+                else:
+                    hexdigest = calculate_hash(path)
+                    for entry in set(local_cache):
+                        if local_cache[entry]["hexdigest"] == hexdigest:
+                            if options.verbose:
+                                click.echo(f"Re-indexing '{entry}' as '{path.name}'")
+                            if options.debug:
+                                click.echo(local_cache[entry])
+                            local_ebook = LocalEbook(
+                                id=local_cache[entry].get("id"),
+                                title=local_cache[entry].get("title"),
+                                path=path,
+                                modified=fromisoformat(local_cache[entry].get("modified")),
+                                hexdigest=local_cache[entry].get("hexdigest"),
+                            )
+                            local_ebooks.append(local_ebook)
+                            local_cache[path.name] = local_cache[entry]
+                            local_cache.pop(entry, None)
+            except Exception as e:
+                print(e)
                 echo_status(path, Status.UNKNOWN)
 
     else:
@@ -192,18 +213,20 @@ def get_local_ebooks(local_cache: dict) -> None:
                         modified = metadata.find(
                             ".//opf:meta[@property='dcterms:modified']", ns
                         )
-                        filename = os.path.basename(path)
                         local_ebook = LocalEbook(
                             id=id.text,
                             title=metadata.find(".//dc:title", ns).text,
                             path=path,
                             modified=fromisoformat(modified.text),
+                            hexdigest=None,
                         )
                         local_ebooks.append(local_ebook)
             except Exception:
                 echo_status(path, Status.UNKNOWN)
     if options.verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
+    if options.debug:
+        click.echo(local_ebooks)
 
 
 def download_ebook(url: str, path: Path, status: str) -> dict:
@@ -218,6 +241,15 @@ def download_ebook(url: str, path: Path, status: str) -> dict:
             file.write(chunk)
     download.replace(path)
     return response.headers
+
+
+def calculate_hash(path: Path) -> str:
+    """Calculate a SHA-256 hash of a given file."""
+    with open(path, "rb") as file:
+        hexdigest = hashlib.file_digest(file, "sha256")
+    if options.debug:
+        click.echo(f"{path.name} -> {hexdigest.hexdigest()}")
+    return hexdigest.hexdigest()
 
 
 def sortable_author(author: str) -> str:
@@ -245,7 +277,9 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
     # if metadata has exact modification times, then local is considered current
     if remote_ebook.updated == local_ebook.modified:
         if options.debug:
-            click.echo(f"{os.path.basename(local_ebook.path)}: Modification dates are the same")
+            click.echo(
+                f"'{local_ebook.path.name}' has the same modification date as remote file '{ebook_filename(remote_ebook)}'"
+            )
         return False
 
     stat = local_ebook.path.stat()
@@ -253,14 +287,18 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
     file_modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
     if remote_ebook.updated > file_modified:
         if options.debug:
-            click.echo(f"{os.path.basename(local_ebook.path)}: Remote file is more recent")
+            click.echo(
+                f"'{local_ebook.path.name}' is older than remote file '{ebook_filename(remote_ebook)}'"
+            )
         return True
 
     response = request(method="HEAD", url=remote_ebook.href)
     content_length = int(response.headers["Content-Length"])
     if content_length != stat.st_size:
         if options.debug:
-            click.echo(f"{os.path.basename(local_ebook.path)}: File sizes are different")
+            click.echo(
+                f"'{local_ebook.path.name}' differs in size from remote file '{ebook_filename(remote_ebook)}'"
+            )
         return True
 
     return False
@@ -409,23 +447,20 @@ def sebsync(**kwargs):
     # --quiet wins over --verbose
     options.verbose = options.verbose and not options.quiet
 
-    # Use a local cache for storing ebook metadata
-    cache = {"epub": {}, "kindle": {}}
-    cache_dir = user_cache_dir(appname="sebsync")
-    cachefile = Path(cache_dir, "sebsync_index")
-    if cachefile.exists() and cachefile.is_file():
-        if options.debug:
-            click.echo(f"Cache found at {cachefile}")
-        with open(cachefile, "r") as f:
-            cache = json.load(f)
-
-    # Get the cache for the specific type of file we're syncing
+    local_cache = {}
     if options.type == "kindle":
-        local_cache = cache["kindle"]
-    else:
-        local_cache = cache["epub"]
-    if options.verbose:
-        click.echo(f"Found {len(local_cache)} books in the cache.")
+        # Use a local cache for storing ebook metadata
+        cache_dir = user_cache_dir(appname="sebsync")
+        cachefile = Path(cache_dir, "sebsync_index")
+
+        if cachefile.exists() and cachefile.is_file():
+            if options.debug:
+                click.echo(f"Cache found at {cachefile}")
+            with open(cachefile, "r") as f:
+                local_cache = json.load(f)
+
+        if options.verbose:
+            click.echo(f"Found {len(local_cache)} books in the cache.")
 
     get_remote_ebooks()
     get_local_ebooks(local_cache)
@@ -438,11 +473,9 @@ def sebsync(**kwargs):
                 if options.update:
                     download_new = False
                     if options.force_update or books_are_different(local_ebook, remote_ebook):
-                        response_headers = download_ebook(
-                            remote_ebook.href, local_ebook.path, Status.UPDATE
-                        )
-                        if not options.dry_run:
-                            local_cache[os.path.basename(local_ebook.path)] = {
+                        download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
+                        if options.type == "kindle" and not options.dry_run:
+                            local_cache[local_ebook.path.name] = {
                                 "id": remote_ebook.id,
                                 "title": remote_ebook.title,
                                 "modified": remote_ebook.updated,
@@ -453,8 +486,8 @@ def sebsync(**kwargs):
                     if books_are_different(local_ebook, remote_ebook):
                         if options.remove:
                             remove(local_ebook)
-                            if not options.dry_run:
-                                local_cache.pop(os.path.basename(local_ebook.path), None)
+                            if options.type == "kindle" and not options.dry_run:
+                                local_cache.pop(local_ebook.path.name, None)
 
                         else:
                             echo_status(local_ebook.path, Status.OUTDATED)
@@ -464,13 +497,37 @@ def sebsync(**kwargs):
                             echo_status(local_ebook.path, Status.CURRENT)
         if download_new:
             path = options.downloads / ebook_filename(remote_ebook)
-            response_headers = download_ebook(remote_ebook.href, path, Status.NEW)
-            if not options.dry_run:
-                local_cache[os.path.basename(path)] = {
-                    "id": remote_ebook.id,
-                    "title": remote_ebook.title,
-                    "modified": remote_ebook.updated,
-                }
+            download_ebook(remote_ebook.href, path, Status.NEW)
+            if options.type == "kindle":
+                hexdigest = calculate_hash(path)
+                download_already_exists = False
+                for title in local_cache:
+                    # If the hexdigest of the downloaded file matches an existing entry,
+                    # then we've seen this book before
+                    if local_cache[title].get("hexdigest") == hexdigest:
+                        cache_entry_path = local_cache[title].get("path")
+
+                        # Check to see if the book we've seen before is still present
+                        if (
+                            cache_entry_path
+                            and cache_entry_path.exists()
+                            and cache_entry_path.is_file()
+                        ):
+                            click.echo(f"{path.name} is the same as existing file {title}!")
+                            download_already_exists = True
+                if not options.dry_run:
+                    # If the book we saw before is still present, remove it
+                    if download_already_exists:
+                        path.unlink()
+
+                    # Otherwise, add it to our local index
+                    else:
+                        local_cache[path.name] = {
+                            "id": remote_ebook.id,
+                            "title": remote_ebook.title,
+                            "modified": remote_ebook.updated,
+                            "hexdigest": hexdigest,
+                        }
 
     for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
@@ -478,54 +535,65 @@ def sebsync(**kwargs):
                 if options.remove:
                     remove(local_ebook)
                     if not options.dry_run:
-                        local_cache.pop(os.path.basename(local_ebook.path), None)
+                        local_cache.pop(local_ebook.path.name, None)
                 else:
                     echo_status(local_ebook.path, Status.OUTDATED)
             else:
                 echo_status(local_ebook.path, Status.EXTRA)
 
-    # Remove titles from the cache if they don't exist locally; first create
-    # a list of all the local titles
-    local_titles = []
-
     if options.type == "kindle":
-        stored_files = options.books.glob("**/*.azw3")
-        downloaded_files = options.downloads.glob("**/*.azw3")
-    else:
-        stored_files = options.books.glob("**/*.epub")
-        downloaded_files = options.downloads.glob("**/*.epub")
+        # Remove titles from the cache if they don't exist locally;
+        # first create a list of all the local titles
+        local_titles = {}
 
-    for path in stored_files:
-        if not path.is_file():
-            continue
-        local_titles.append(os.path.basename(path))
+        if options.type == "kindle":
+            stored_files = options.books.glob("**/*.azw3")
+            downloaded_files = options.downloads.glob("**/*.azw3")
+        else:
+            stored_files = options.books.glob("**/*.epub")
+            downloaded_files = options.downloads.glob("**/*.epub")
 
-    for path in downloaded_files:
-        if not path.is_file():
-            continue
-        local_titles.append(os.path.basename(path))
+        for path in stored_files:
+            if not path.is_file():
+                continue
+            local_titles[path.name] = {"hexdigest": calculate_hash(path)}
 
-    # Check each of the titles in the local cache to see if they exist locally;
-    # if not, remove the title from the cache
-    if not options.dry_run:
-        for title in list(local_cache):
-            if title not in set(local_titles):
-                local_cache.pop(title, None)
-                if options.verbose:
-                    click.echo(f"Removed '{title}' from local cache.")
+        for path in downloaded_files:
+            if not path.is_file():
+                continue
+            local_titles[path.name] = {"hexdigest": calculate_hash(path)}
 
-    # Add the local file-specific cache back into the cache file and save
-    if options.type == "kindle":
-        cache["kindle"] = local_cache
-    else:
-        cache["epub"] = local_cache
+        # Check each of the titles in the local cache to see if they exist locally;
+        # if not, remove the title from the cache
+        if not options.dry_run:
+            for title in local_titles:
+                for cache_title in set(local_cache):
+                    if (
+                        local_cache[cache_title]["hexdigest"]
+                        == local_titles[title]["hexdigest"]
+                        and cache_title != title
+                    ):
+                        local_cache[title] = local_cache[cache_title]
+                        if options.verbose:
+                            click.echo(f"Added '{title}' to the local cache.")
+                        if options.debug:
+                            click.echo(local_cache[title])
+                        local_cache.pop(cache_title)
+                        if options.verbose:
+                            click.echo(f"Removed '{cache_title}' from local cache.")
 
-    os.makedirs(cache_dir, exist_ok=True)
-    with open(cachefile, "w") as f:
-        # JSON can't serialize datetime objects, so they have to be converted to ISO formatted strings
-        json.dump(cache, f, default=toisoformat)
-        if options.debug:
-            click.echo(f"Saved cache to {cachefile}")
+            for title in list(local_cache):
+                if title not in set(local_titles):
+                    local_cache.pop(title, None)
+                    if options.verbose:
+                        click.echo(f"Removed '{title}' from local cache.")
+
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(cachefile, "w") as f:
+            # JSON can't serialize datetime objects, so they have to be converted to ISO formatted strings
+            json.dump(local_cache, f, default=toisoformat)
+            if options.debug:
+                click.echo(f"Saved cache to {cachefile}.")
 
 
 def main():
