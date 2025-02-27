@@ -534,7 +534,7 @@ def sebsync(**kwargs):
             if is_deprecated(local_ebook):
                 if options.remove:
                     remove(local_ebook)
-                    if not options.dry_run:
+                    if options.type == "kindle" and not options.dry_run:
                         local_cache.pop(local_ebook.path.name, None)
                 else:
                     echo_status(local_ebook.path, Status.OUTDATED)
