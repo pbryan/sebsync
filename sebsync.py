@@ -1,6 +1,9 @@
 """Synchronize Standard Ebooks catalog with local EPUB collection."""
 
 import click
+import hashlib
+import json
+import os
 import requests
 import xml.etree.ElementTree as ElementTree
 import zipfile
@@ -8,6 +11,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from platformdirs import PlatformDirs
 from requests.auth import HTTPBasicAuth
 from shutil import get_terminal_size
 from urllib.parse import urlparse
@@ -73,6 +77,7 @@ type_selector = {
     "compatible": "Recommended compatible epub",
     "kobo": "Kobo Kepub epub",
     "advanced": "Advanced epub",
+    "kindle": "Amazon Kindle azw3",
 }
 
 
@@ -98,6 +103,12 @@ def fromisoformat(text: str) -> datetime:
     return datetime(
         d.year, d.month, d.day, d.hour, d.minute, d.second, d.microsecond, timezone.utc
     )
+
+
+def toisoformat(d: datetime) -> str:
+    """Convert Python datetime object to string."""
+    if isinstance(d, (datetime)):
+        return d.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def request(**kwargs):
@@ -138,37 +149,56 @@ def get_remote_ebooks() -> None:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
 
-def get_local_ebooks() -> None:
+def get_local_ebooks(index: dict) -> None:
     """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
-    for path in options.books.glob("**/*.epub"):
-        if not path.is_file():
-            continue
-        try:
-            with zipfile.ZipFile(path) as zip:
-                with zip.open("META-INF/container.xml") as file:
-                    root = ElementTree.parse(file)
-                    ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
-                    rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
-                with zip.open(rootfile) as file:
-                    root = ElementTree.parse(file)
-                    ns = {
-                        "opf": "http://www.idpf.org/2007/opf",
-                        "dc": "http://purl.org/dc/elements/1.1/",
-                    }
-                    metadata = root.find("opf:metadata", ns)
-                    id = metadata.find("dc:identifier", ns)
-                    if id is None or "standardebooks.org" not in id.text:
-                        continue
-                    modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
+    if options.type == "kindle":
+        for path in options.books.glob("**/*.azw3"):
+            if not path.is_file():
+                continue
+            try:
+                hexdigest = calculate_hash(path)
+                if hexdigest in index:
                     local_ebook = LocalEbook(
-                        id=id.text,
-                        title=metadata.find(".//dc:title", ns).text,
+                        id=index[hexdigest].get("id", None),
+                        title=index[hexdigest].get("title", None),
                         path=path,
-                        modified=fromisoformat(modified.text),
+                        modified=fromisoformat(index[hexdigest].get("modified", None)),
                     )
                     local_ebooks.append(local_ebook)
-        except Exception:
-            echo_status(path, Status.UNKNOWN)
+            except Exception:
+                echo_status(path, Status.UNKNOWN)
+    else:
+        for path in options.books.glob("**/*.epub"):
+            if not path.is_file():
+                continue
+            try:
+                with zipfile.ZipFile(path) as zip:
+                    with zip.open("META-INF/container.xml") as file:
+                        root = ElementTree.parse(file)
+                        ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
+                        rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
+                    with zip.open(rootfile) as file:
+                        root = ElementTree.parse(file)
+                        ns = {
+                            "opf": "http://www.idpf.org/2007/opf",
+                            "dc": "http://purl.org/dc/elements/1.1/",
+                        }
+                        metadata = root.find("opf:metadata", ns)
+                        id = metadata.find("dc:identifier", ns)
+                        if id is None or "standardebooks.org" not in id.text:
+                            continue
+                        modified = metadata.find(
+                            ".//opf:meta[@property='dcterms:modified']", ns
+                        )
+                        local_ebook = LocalEbook(
+                            id=id.text,
+                            title=metadata.find(".//dc:title", ns).text,
+                            path=path,
+                            modified=fromisoformat(modified.text),
+                        )
+                        local_ebooks.append(local_ebook)
+            except Exception:
+                echo_status(path, Status.UNKNOWN)
     if options.verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
 
@@ -184,6 +214,15 @@ def download_ebook(url: str, path: Path, status: str) -> None:
         for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
             file.write(chunk)
     download.replace(path)
+
+
+def calculate_hash(path: Path) -> str:
+    """Calculate a SHA-256 hash of a given file."""
+    with open(path, "rb") as file:
+        hexdigest = hashlib.file_digest(file, "sha256")
+    if options.debug:
+        click.echo(f"{path.name} -> {hexdigest.hexdigest()}")
+    return hexdigest.hexdigest()
 
 
 def sortable_author(author: str) -> str:
@@ -210,17 +249,29 @@ def books_are_different(local_ebook: LocalEbook, remote_ebook: RemoteEbook) -> b
 
     # if metadata has exact modification times, then local is considered current
     if remote_ebook.updated == local_ebook.modified:
+        if options.debug:
+            click.echo(
+                f"'{local_ebook.path.name}' has the same modification date as remote file '{ebook_filename(remote_ebook)}'"
+            )
         return False
 
     stat = local_ebook.path.stat()
 
     file_modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
     if remote_ebook.updated > file_modified:
+        if options.debug:
+            click.echo(
+                f"'{local_ebook.path.name}' is older than remote file '{ebook_filename(remote_ebook)}'"
+            )
         return True
 
     response = request(method="HEAD", url=remote_ebook.href)
     content_length = int(response.headers["Content-Length"])
     if content_length != stat.st_size:
+        if options.debug:
+            click.echo(
+                f"'{local_ebook.path.name}' differs in size from remote file '{ebook_filename(remote_ebook)}'"
+            )
         return True
 
     return False
@@ -369,8 +420,20 @@ def sebsync(**kwargs):
     # --quiet wins over --verbose
     options.verbose = options.verbose and not options.quiet
 
+    index = {}
+    if options.type == "kindle":
+        dirs = PlatformDirs(appname="sebsync")
+        indexfile = Path(dirs.user_cache_dir, "sebsync_index")
+        if indexfile.exists() and indexfile.is_file():
+            if options.debug:
+                click.echo(f"Index found at {indexfile}")
+            with open(indexfile, "r") as f:
+                index = json.load(f)
+        if options.verbose:
+            click.echo(f"Found {len(index)} books in the index.")
+
     get_remote_ebooks()
-    get_local_ebooks()
+    get_local_ebooks(index)
 
     for remote_ebook in remote_ebooks.values():
         matching_local_ebooks = [b for b in local_ebooks if b.id == remote_ebook.id]
@@ -380,13 +443,28 @@ def sebsync(**kwargs):
                 if options.update:
                     download_new = False
                     if options.force_update or books_are_different(local_ebook, remote_ebook):
+                        old_hexdigest = calculate_hash(local_ebook.path)
                         download_ebook(remote_ebook.href, local_ebook.path, Status.UPDATE)
+                        if options.type == "kindle" and not options.dry_run:
+                            new_hexdigest = calculate_hash(local_ebook.path)
+                            index[new_hexdigest] = {
+                                "id": remote_ebook.id,
+                                "title": remote_ebook.title,
+                                "modified": remote_ebook.updated,
+                            }
+                            # When forcing an update, the old file and new download may have the same hexdigest;
+                            # only remove the old entry from the index when hexdigests are different
+                            if old_hexdigest != new_hexdigest:
+                                index.pop(old_hexdigest, None)
                     elif options.verbose:
                         echo_status(local_ebook.path, Status.CURRENT)
                 else:
                     if books_are_different(local_ebook, remote_ebook):
                         if options.remove:
+                            hexdigest = calculate_hash(local_ebook.path)
                             remove(local_ebook)
+                            if options.type == "kindle" and not options.dry_run:
+                                index.pop(hexdigest, None)
                         else:
                             echo_status(local_ebook.path, Status.OUTDATED)
                     else:
@@ -396,16 +474,56 @@ def sebsync(**kwargs):
         if download_new:
             path = options.downloads / ebook_filename(remote_ebook)
             download_ebook(remote_ebook.href, path, Status.NEW)
+            if options.type == "kindle" and not options.dry_run:
+                downloaded_hexdigest = calculate_hash(path)
+                index[downloaded_hexdigest] = {
+                    "id": remote_ebook.id,
+                    "title": remote_ebook.title,
+                    "modified": remote_ebook.updated,
+                }
 
     for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
             if is_deprecated(local_ebook):
                 if options.remove:
+                    hexdigest = calculate_hash(local_ebook.path)
                     remove(local_ebook)
+                    if options.type == "kindle" and not options.dry_run:
+                        index.pop(hexdigest, None)
                 else:
                     echo_status(local_ebook.path, Status.OUTDATED)
             else:
                 echo_status(local_ebook.path, Status.EXTRA)
+
+    if options.type == "kindle":
+        # Generate an inventory of local files from the library and downloads directories
+        local_files = set()
+        for path in options.books.glob("**/*.azw3"):
+            if not path.is_file():
+                continue
+            local_files.add(calculate_hash(path))
+        if options.downloads != options.books:
+            for path in options.downloads.glob("**/*.azw3"):
+                if not path.is_file():
+                    continue
+                local_files.add(calculate_hash(path))
+
+        # Ensure the index reflects the current library by pruning entries that don't exist locally
+        index_orphans = set(index) - local_files
+        for hexdigest in index_orphans:
+            index.pop(hexdigest, None)
+            if options.debug:
+                click.echo(
+                    f"'{hexdigest}' doesn't match any local files; removing from the index."
+                )
+
+        # Save the index
+        os.makedirs(dirs.user_cache_dir, exist_ok=True)
+        with open(indexfile, "w") as f:
+            # JSON can't serialize datetime objects, so they have to be converted to ISO formatted strings
+            json.dump(index, f, default=toisoformat)
+            if options.debug:
+                click.echo(f"Saved index to {indexfile}.")
 
 
 def main():
