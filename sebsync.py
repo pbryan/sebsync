@@ -495,7 +495,7 @@ def sebsync(**kwargs):
             else:
                 echo_status(local_ebook.path, Status.EXTRA)
 
-    if options.type == "kindle":
+    if options.type == "kindle" and not options.dry_run:
         # Generate an inventory of local files from the library and downloads directories
         local_files = set()
         for path in options.books.glob("**/*.azw3"):
