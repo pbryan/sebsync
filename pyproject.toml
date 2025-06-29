@@ -4,7 +4,11 @@ version = "1.0.11"
 description = "Synchronize Standard Ebooks catalog with local EPUB collection."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [ "click", "requests" ]
+dependencies = [
+ "click",
+ "requests",
+ "platformdirs",
+]
 keywords = ["standard", "ebook", "book", "synchronization", "sync", "download"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
