@@ -460,13 +460,13 @@ def sebsync(**kwargs):
                         echo_status(local_ebook.path, Status.CURRENT)
                 else:
                     if books_are_different(local_ebook, remote_ebook):
+                        hexdigest = calculate_hash(local_ebook.path)
                         if options.remove:
-                            hexdigest = calculate_hash(local_ebook.path)
                             remove(local_ebook)
-                            if options.type == "kindle" and not options.dry_run:
-                                index.pop(hexdigest, None)
                         else:
                             echo_status(local_ebook.path, Status.OUTDATED)
+                        if options.type == "kindle" and not options.dry_run:
+                            index.pop(hexdigest, None)
                     else:
                         download_new = False  # at least one local ebook already matches
                         if options.verbose:
@@ -485,13 +485,13 @@ def sebsync(**kwargs):
     for local_ebook in local_ebooks:
         if local_ebook.id not in remote_ebooks:
             if is_deprecated(local_ebook):
+                hexdigest = calculate_hash(local_ebook.path)
                 if options.remove:
-                    hexdigest = calculate_hash(local_ebook.path)
                     remove(local_ebook)
-                    if options.type == "kindle" and not options.dry_run:
-                        index.pop(hexdigest, None)
                 else:
                     echo_status(local_ebook.path, Status.OUTDATED)
+                if options.type == "kindle" and not options.dry_run:
+                    index.pop(hexdigest, None)
             else:
                 echo_status(local_ebook.path, Status.EXTRA)
 
