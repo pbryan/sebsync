@@ -110,6 +110,10 @@ def request(**kwargs):
     return response
 
 
+def strip_id_prefix(id: str) -> str:
+    return id[4:] if id.startswith("url:") else id
+
+
 def get_remote_ebooks() -> None:
     """Retrieve Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
@@ -123,7 +127,7 @@ def get_remote_ebooks() -> None:
     root = ElementTree.parse(response.raw).getroot()
     for entry in root.iterfind(".//atom:entry", ns):
         remote_ebook = RemoteEbook(
-            id=entry.find("dc:identifier", ns).text,
+            id=strip_id_prefix(entry.find("dc:identifier", ns).text),
             title=entry.find("atom:title", ns).text,
             author=entry.find("atom:author", ns).find("atom:name", ns).text,
             href=entry.find(f".//atom:link[@title='{type_selector[options.type]}']", ns).attrib[
@@ -161,7 +165,7 @@ def get_local_ebooks() -> None:
                         continue
                     modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
                     local_ebook = LocalEbook(
-                        id=id.text,
+                        id=strip_id_prefix(id.text),
                         title=metadata.find(".//dc:title", ns).text,
                         path=path,
                         modified=fromisoformat(modified.text),
@@ -243,9 +247,7 @@ def ebook_filename(ebook: RemoteEbook) -> str:
 
 def is_deprecated(local_ebook: LocalEbook) -> bool:
     """Return if the specified book identifier is deprecated."""
-    if not local_ebook.id.startswith("url:"):
-        raise ValueError("expect identifier to begin with 'url:'")
-    response = request(method="HEAD", url=local_ebook.id[4:], allow_redirects=False)
+    response = request(method="HEAD", url=local_ebook.id, allow_redirects=False)
     return (
         response.status_code == 301 and f"url:{response.headers['Location']}" in remote_ebooks
     )
