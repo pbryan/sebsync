@@ -1,6 +1,6 @@
 [project]
 name = "sebsync"
-version = "1.0.11"
+version = "1.0.12"
 description = "Synchronize Standard Ebooks catalog with local EPUB collection."
 readme = "README.md"
 requires-python = ">=3.10"
