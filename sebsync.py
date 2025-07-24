@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from requests.auth import HTTPBasicAuth
 from shutil import get_terminal_size
+from time import sleep
 from urllib.parse import urlparse
 
 
@@ -102,9 +103,19 @@ def fromisoformat(text: str) -> datetime:
 
 def request(**kwargs):
     """Send an HTTP request."""
+    kwargs["auth"] = HTTPBasicAuth(options.email, "")
     if options.debug:
         click.echo(f"{kwargs['method']} {kwargs['url']}", nl=False)
-    response = requests.request(**kwargs)
+    retry_count = 10
+    for retries in range(1, retry_count + 1):
+        response = requests.request(**kwargs)
+        if response.status_code != 429:
+            break
+        if not options.quiet:
+            click.echo(f"{response.status_code} {response.reason}. Retrying...")
+        sleep(5)
+    if retries == retry_count:
+        raise click.ClickException("Too many retries. Aborting.")
     if options.debug:
         click.echo(f" → {response.status_code} {response.reason}")
     return response
@@ -117,12 +128,9 @@ def strip_id_prefix(id: str) -> str:
 def get_remote_ebooks() -> None:
     """Retrieve Standard Ebooks metadata for EPUBs from the OPDS catalog."""
     ns = {"atom": "http://www.w3.org/2005/Atom", "dc": "http://purl.org/dc/terms/"}
-    response = request(
-        method="GET",
-        url=options.opds,
-        stream=True,
-        auth=HTTPBasicAuth(options.email, ""),
-    )
+    response = request(method="GET", url=options.opds, stream=True)
+    if response.status_code != 200:
+        raise click.ClickException("OPDS catalog download failed. Is email address correct?")
     response.raw.decode_content = True
     root = ElementTree.parse(response.raw).getroot()
     for entry in root.iterfind(".//atom:entry", ns):
@@ -142,36 +150,39 @@ def get_remote_ebooks() -> None:
         click.echo(f"Found {len(remote_ebooks)} remote ebooks.")
 
 
+def get_local_ebook_metadata(path) -> LocalEbook | None:
+    with zipfile.ZipFile(path) as zip:
+        with zip.open("META-INF/container.xml") as file:
+            root = ElementTree.parse(file)
+            ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
+            rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
+        with zip.open(rootfile) as file:
+            root = ElementTree.parse(file)
+            ns = {
+                "opf": "http://www.idpf.org/2007/opf",
+                "dc": "http://purl.org/dc/elements/1.1/",
+            }
+            metadata = root.find("opf:metadata", ns)
+            id = metadata.find("dc:identifier", ns)
+            if id is not None and "standardebooks.org" in id.text:
+                modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
+                return LocalEbook(
+                    id=strip_id_prefix(id.text),
+                    title=metadata.find(".//dc:title", ns).text,
+                    path=path,
+                    modified=fromisoformat(modified.text),
+                )
+
+
 def get_local_ebooks() -> None:
     """Retrieve metadata of Standard EPUBs in the specified directory and subdirectories."""
     for path in options.books.glob("**/*.epub"):
         if not path.is_file():
             continue
         try:
-            with zipfile.ZipFile(path) as zip:
-                with zip.open("META-INF/container.xml") as file:
-                    root = ElementTree.parse(file)
-                    ns = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
-                    rootfile = root.find(".//container:rootfile", ns).attrib["full-path"]
-                with zip.open(rootfile) as file:
-                    root = ElementTree.parse(file)
-                    ns = {
-                        "opf": "http://www.idpf.org/2007/opf",
-                        "dc": "http://purl.org/dc/elements/1.1/",
-                    }
-                    metadata = root.find("opf:metadata", ns)
-                    id = metadata.find("dc:identifier", ns)
-                    if id is None or "standardebooks.org" not in id.text:
-                        continue
-                    modified = metadata.find(".//opf:meta[@property='dcterms:modified']", ns)
-                    local_ebook = LocalEbook(
-                        id=strip_id_prefix(id.text),
-                        title=metadata.find(".//dc:title", ns).text,
-                        path=path,
-                        modified=fromisoformat(modified.text),
-                    )
-                    local_ebooks.append(local_ebook)
-        except Exception:
+            if local_ebook := get_local_ebook_metadata(path):
+                local_ebooks.append(local_ebook)
+        except:
             echo_status(path, Status.UNKNOWN)
     if options.verbose:
         click.echo(f"Found {len(local_ebooks)} local ebooks.")
@@ -182,11 +193,18 @@ def download_ebook(url: str, path: Path, status: str) -> None:
     echo_status(path, status)
     if options.dry_run:
         return
-    download = path.with_suffix(".sebsync")
     response = request(method="GET", url=url, stream=True)
+    if response.status_code != 200:
+        raise click.ClickException(f"Download failed (error {response.status_code})")
+    download = path.with_suffix(".sebsync")
     with download.open("wb") as file:
         for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
             file.write(chunk)
+    try:
+        if not get_local_ebook_metadata(download):
+            raise RuntimeError
+    except:
+        raise click.ClickException("Ebook download failed (corrupt file)")
     download.replace(path)
 
 
